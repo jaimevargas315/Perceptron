@@ -1,0 +1,286 @@
+## Problem 6
+
+#### Part a)
+```julia
+using LinearAlgebra
+using Plots
+using Random # Required for Gaussian initialization
+
+## Fixed-Step Gradient Descent on Himmelblau’s Cost Function (Random Start)
+
+# --- 1. Himmelblau Cost Function (J(w)) ---
+
+function himmelblau_cost(w::Vector{Float64})::Float64
+    """
+    J(w) = (w₁² + w₂ - 11)² + (w₁ + w₂² - 7)²
+    Has four global minima where J(w*) = 0.
+    """
+    w1, w2 = w[1], w[2]
+    
+    term1 = w1^2 + w2 - 11.0
+    term2 = w1 + w2^2 - 7.0
+    
+    return term1^2 + term2^2
+end
+
+# --- 2. Himmelblau Gradient Function (∇J(w)) ---
+
+function himmelblau_gradient(w::Vector{Float64})::Vector{Float64}
+    """
+    Gradient of Himmelblau's function, ∇J(w).
+    """
+    w1, w2 = w[1], w[2]
+    
+    # Pre-calculate terms
+    T1 = w1^2 + w2 - 11.0
+    T2 = w1 + w2^2 - 7.0
+    
+    # dJ/dw1 = 2*T1*(2*w1) + 2*T2*(1)
+    dw1 = 4.0 * w1 * T1 + 2.0 * T2
+    
+    # dJ/dw2 = 2*T1*(1) + 2*T2*(2*w2)
+    dw2 = 2.0 * T1 + 4.0 * w2 * T2
+    
+    return [dw1, dw2]
+end
+
+# --- 3. Fixed-Step Gradient Descent Algorithm ---
+
+function gradient_descent_fixed_step(
+    initial_w::Vector{Float64};
+    η::Float64 = 0.0001,
+    max_iterations::Integer = 1000
+)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Performs Batch Gradient Descent (Fixed Step) on the Himmelblau function.
+    """
+    
+    w = copy(initial_w)
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    push!(weight_history, copy(w)) 
+    
+    for k in 1:max_iterations
+        grad_w = himmelblau_gradient(w)
+        
+        # Check for convergence or divergence (optional)
+        if norm(grad_w) < 1e-6
+             println("Convergence achieved after $k steps.")
+             break
+        end
+
+        # Update rule: Fixed-step
+        w -= η * grad_w
+        
+        push!(weight_history, copy(w))
+        push!(cost_history, himmelblau_cost(w))
+    end
+    
+    return weight_history, cost_history
+end
+
+
+# --- 4. Plotting Function (Contour & Minima) ---
+
+function plot_himmelblau_trajectory(w_history::Vector{Vector{Float64}})
+    """
+    Plots the contour of Himmelblau's function, the four global minima, 
+    and the GD trajectory.
+    """
+    
+    w_stars = [
+        [3.0, 2.0],
+        [-2.805118, 3.131312],
+        [-3.779310, -3.283186],
+        [3.584428, -1.848126]
+    ]
+    
+    # Define ranges for the contour plot grid
+    range_lim = 6.0
+    w_range = range(-range_lim, stop=range_lim, length=100)
+    
+    # Calculate the cost surface for the contour
+    J_surface = [himmelblau_cost([w1, w2]) for w2 in w_range, w1 in w_range]
+
+    # Create the contour plot
+    p = contour(w_range, w_range, J_surface, 
+                fill=true, 
+                levels=vcat(range(0.1, 10.0, length=10), range(20.0, 500.0, length=10)), 
+                cbar=false, 
+                title="GD on Himmelblau: Random Start (η=0.0001)",
+                xlabel="w₁", 
+                ylabel="w₂",
+                legend=:bottomright,
+                colormap=:viridis) 
+
+    # Plot the Four Global Minima
+    minima_w1 = [w[1] for w in w_stars]
+    minima_w2 = [w[2] for w in w_stars]
+    scatter!(p, minima_w1, minima_w2, 
+             label="Global Minima (J=0)", 
+             marker=:star, 
+             markersize=10, 
+             markercolor=:red, 
+             markerstrokecolor=:black)
+             
+    # Convert history into plottable vectors
+    w1_path = [w[1] for w in w_history]
+    w2_path = [w[2] for w in w_history]
+    
+    # Plot the GD path
+    plot!(p, w1_path, w2_path, 
+          label="GD Path", 
+          color=:cyan, 
+          linewidth=2, 
+          markershape=:circle, 
+          markersize=3, 
+          markercolor=:white,
+          alpha=0.9)
+
+    # Plot Start and End Points
+    scatter!(p, [w1_path[1]], [w2_path[1]], 
+             label="Start (w₀)", 
+             markersize=7, 
+             markershape=:diamond,
+             markercolor=:green)
+
+    scatter!(p, [w1_path[end]], [w2_path[end]], 
+             label="End (w_final)", 
+             markersize=7, 
+             markershape=:square,
+             markercolor=:yellow)
+
+    display(p)
+end
+
+# --- Execution ---
+Random.seed!(42) # Set seed for a reproducible random start
+initial_w = randn(2) # Draw from Gaussian N(0, 1)
+
+eta_val = 0.0001
+iterations = 1000
+
+(w_history, j_history) = gradient_descent_fixed_step(
+    initial_w; 
+    η=eta_val, 
+    max_iterations=iterations
+)
+
+plot_himmelblau_trajectory(w_history)
+
+# Print final results:
+println("--- Fixed-Step GD Results (Random Start) ---")
+println("Random Initial Weights (w₀): $(round.(w_history[1], digits=4))")
+println("Initial Cost: J(w₀) = $(round(himmelblau_cost(w_history[1]), digits=4))")
+println("Final Weights after $(length(w_history)-1) steps: $(round.(w_history[end], digits=4))")
+println("Final Cost: J(w_final) = $(round(j_history[end], digits=6))")
+
+println("The fixed-step gradient descent is able to converge to a local minimum of the Himmelblau function.")
+```
+#### Part b)
+```julia
+function plot_himmelblau_50_trajectories(all_w_histories::Vector{Vector{Vector{Float64}}}; η::Float64=0.0001)
+    """
+    Plots the contour of Himmelblau's function, the four global minima, 
+    and all 50 GD trajectories on a single plot.
+    """
+    
+    w_stars = [
+        [3.0, 2.0],
+        [-2.805118, 3.131312],
+        [-3.779310, -3.283186],
+        [3.584428, -1.848126]
+    ]
+    
+    # Define ranges for the contour plot grid
+    range_lim = 6.0
+    w_range = range(-range_lim, stop=range_lim, length=100)
+    
+    # Calculate the cost surface for the contour
+    J_surface = [himmelblau_cost([w1, w2]) for w2 in w_range, w1 in w_range]
+
+    # Create the contour plot
+    p = contour(w_range, w_range, J_surface, 
+                fill=true, 
+                levels=vcat(range(0.1, 10.0, length=10), range(20.0, 500.0, length=10)), 
+                cbar=false, 
+                title="50 Gradient Descent Runs (η=$η)",
+                xlabel="w₁", 
+                ylabel="w₂",
+                legend=:bottomright,
+                colormap=:viridis) 
+
+    # Plot the Four Global Minima
+    scatter!(p, [w[1] for w in w_stars], [w[2] for w in w_stars], 
+             label="Global Minima (J=0)", 
+             marker=:star, markersize=10, markercolor=:red, markerstrokecolor=:black)
+             
+    all_final_w1 = Float64[]
+    all_final_w2 = Float64[]
+    
+    # Plot all 50 trajectories
+    for (i, w_history) in enumerate(all_w_histories)
+        w1_path = [w[1] for w in w_history]
+        w2_path = [w[2] for w in w_history]
+        
+        # Plot the path with high transparency to manage clutter
+        plot!(p, w1_path, w2_path, 
+              label=nothing, # Only label the first path
+              color=:cyan, 
+              linewidth=0.5, 
+              alpha=0.75)
+
+        # Collect final point for aggregated plot
+        if !isempty(w_history)
+            push!(all_final_w1, w1_path[end])
+            push!(all_final_w2, w2_path[end])
+        end
+        
+        # Plot the first run's start point for reference
+        if i == 1
+             scatter!(p, [w1_path[1]], [w2_path[1]], 
+                 label="Example Start", 
+                 markersize=5, markershape=:diamond, markercolor=:green)
+        end
+    end
+    
+    # Plot all final convergence points
+    scatter!(p, all_final_w1, all_final_w2, 
+             label="Final Converged Points", 
+             markersize=4, markershape=:circle, markercolor=:yellow, markerstrokecolor=:black, alpha=0.8)
+
+    display(p)
+end
+
+# --- Execution for Part B (50 Runs) ---
+const NUM_RUNS = 50
+eta_val = 0.0001
+iterations = 1000
+
+# Set seed to ensure the *sequence* of 50 random starts is reproducible
+Random.seed!(123) 
+
+all_w_histories = Vector{Vector{Float64}}[]
+all_final_weights = Vector{Float64}[]
+
+println("--- Starting 50 Gradient Descent Runs ---")
+
+for i in 1:NUM_RUNS
+    # New random start (Gaussian N(0, 1)) for each run
+    initial_w = randn(2) 
+    
+    # Use the existing function, but only keep the weight history
+    (w_history, j_history) = gradient_descent_fixed_step(
+        initial_w; 
+        η=eta_val, 
+        max_iterations=iterations
+    )
+    
+    push!(all_w_histories, w_history)
+    push!(all_final_weights, w_history[end])
+end
+
+# Generate Plot
+plot_himmelblau_50_trajectories(all_w_histories, η=eta_val)
+println("Most of the 50 runs converge to local minima of the Himmelblau function,\n demonstrating the effectiveness of fixed-step gradient descent with η=$eta_val.")
+```

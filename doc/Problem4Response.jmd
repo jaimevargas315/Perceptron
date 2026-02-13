@@ -1,0 +1,490 @@
+## Problem 4
+
+#### Part a)
+```julia
+using LinearAlgebra
+using Random
+
+# --- 1. Hypothesis Function ---
+
+function linear_hypothesis(X::Matrix{Float64}, 𝐰::Vector{Float64})::Vector{Float64}
+    """
+    Computes the linear hypothesis h(x) = X * 𝐰.
+    """
+    return X * 𝐰
+end
+
+# --- 2. Cost Function (Mean Squared Error) ---
+
+function cost_function(X::Matrix{Float64}, y::Vector{Float64}, 𝐰::Vector{Float64})::Float64
+    """
+    Computes the Mean Squared Error (MSE) cost, J(𝐰).
+    """
+    m = size(X, 1) # Number of training examples
+    predictions = linear_hypothesis(X, 𝐰)
+    errors = predictions - y
+    
+    # Cost J(𝐰) = 1/(2m) * sum(errors.^2)
+    return sum(errors.^2) / (2 * m)
+end
+
+# --- 3. Gradient Function ---
+
+function gradient(X::Matrix{Float64}, y::Vector{Float64}, 𝐰::Vector{Float64})::Vector{Float64}
+    """
+    Computes the gradient of the MSE cost function J(𝐰).
+    """
+    m = size(X, 1) # Number of training examples
+    predictions = linear_hypothesis(X, 𝐰)
+    errors = predictions - y
+    
+    # Calculate the gradient: (1/m) * X' * errors
+    grad = (X' * errors) / m
+    
+    return grad
+end
+
+# --- 4. Batch Gradient Descent Algorithm (Modified to track weights and accept start w) ---
+
+function gradient_descent(X::Matrix{Float64}, y::Vector{Float64};
+                          η::Float64 = 0.01,
+                          initial_𝐰::Vector{Float64},
+                          max_iterations::Integer = 1000)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Performs Batch Gradient Descent, tracking all weight vectors.
+        
+    Returns:
+        A tuple containing: (weight_history, cost_history)
+    """
+    
+    𝐰 = copy(initial_𝐰) # Start with the specified initial weights
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    
+    # Record initial weights (Step 0)
+    push!(weight_history, copy(𝐰)) 
+    
+    for i in 1:max_iterations
+        # 1. Compute the gradient 
+        grad_w = gradient(X, y, 𝐰)
+        
+        # 2. Batch Update Rule
+        # 𝐰_k+1 = 𝐰_k - η * ∇J(𝐰_k)
+        𝐰 -= η * grad_w
+        
+        # 3. Record weights after update (Step i)
+        push!(weight_history, copy(𝐰))
+        
+        # 4. Calculate and record the current cost
+        current_cost = cost_function(X, y, 𝐰)
+        push!(cost_history, current_cost)
+        
+        # Note: Tolerance check is removed as per the problem constraint of 50 max iterations.
+    end
+    
+    return weight_history, cost_history
+end
+
+# --- 5. Analysis Function for Optimal Learning Rate ---
+
+function run_eta_comparison_and_plot_part_a()
+    
+    # 5.1. Data Generation
+    Random.seed!(42) 
+    x_data = collect(1.0:0.5:10.0)
+    y_true = 5.0 .+ 3.0 .* x_data + randn(length(x_data)) .* 1.5 
+    X_aug = hcat(ones(length(x_data)), x_data) 
+
+    # 5.2. Calculate Optimal Weights (w*)
+    𝐰_star = (X_aug' * X_aug) \ (X_aug' * y_true)
+    println("Optimal Weights (w⋆): $(round.(𝐰_star, digits=4))")
+    
+    # 5.3. Experiment Setup
+    initial_𝐰 = [-5.0, 5.0] # Fixed starting point 
+    max_iters = 50          
+    η_values = [0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2]
+    unique_colors = [:blue, :cyan, :green, :red, :magenta, :orange, :purple]
+    
+    p = plot(title="Weight Error vs. Iteration for Varying eta",
+             xlabel="Iteration (k)",
+             ylabel="Weight Error E(w) (log scale)",
+             yscale=:log10,
+             xlims=(0, max_iters),
+             ylims=(1, 500), 
+             legend=:topright,
+             grid=true)
+             
+    best_eta = 0.0
+    min_final_error = Inf
+    
+    for (idx, η) in enumerate(η_values) # Use enumerate for unique colors
+        weight_history, _ = gradient_descent(X_aug, y_true; 
+                                             η=η, 
+                                             initial_𝐰=initial_𝐰, 
+                                             max_iterations=max_iters)
+        
+        error_history = Float64[]
+        for i in 1:length(weight_history)
+             𝐰_k_vec = weight_history[i] 
+             error = norm(𝐰_k_vec - 𝐰_star)
+             push!(error_history, error)
+        end
+        
+        if length(error_history) > 0 && error_history[end] < min_final_error
+            min_final_error = error_history[end]
+            best_eta = η
+        end
+
+        # Unique color logic
+        color = unique_colors[idx]
+        linewidth = 1
+        label = "eta=$(η)"
+
+        if η == 0.02 
+            linewidth = 1
+            label = "eta=$(η) (Part a Optimal)"
+        end
+        
+        plot!(p, 0:length(error_history)-1, error_history, 
+              color=color, linestyle=:solid, linewidth=linewidth, label=label)
+    end
+
+    println("\nConclusion for Part a): The fastest converging learning rate is eta = $best_eta.")
+    
+    return p
+end
+
+# Execute the analysis
+run_eta_comparison_and_plot_part_a()
+
+```
+#### Part b)
+```julia
+function run_part_b_analysis()
+    
+    # Use the same data as Part a
+    Random.seed!(42) 
+    x_data = collect(1.0:0.5:10.0)
+    y_true = 5.0 .+ 3.0 .* x_data + randn(length(x_data)) .* 1.5 
+    X_aug = hcat(ones(length(x_data)), x_data) 
+    𝐰_star = (X_aug' * X_aug) \ (X_aug' * y_true)
+    
+    # Parameters for stability test
+    max_iters = 50
+    num_trials = 30
+    
+    η_chosen = 0.02     # From Part a
+    η_stable = 0.005    # Stable baseline
+    η_revised = 0.01    # Revised optimal choice (stable and fast)
+    
+    η_values = [η_chosen, η_stable, η_revised]
+    sum_errors = Dict{Float64, Vector{Float64}}()
+    for η in η_values
+        # Initialize with zeros for max_iters + 1 steps (0 to 50)
+        sum_errors[η] = zeros(max_iters + 1)
+    end
+    
+    Random.seed!(123) # Set a new seed for random initial weights 
+
+    println("\n--- Part b) Stability Analysis ---\n")
+    println("Running stability test (30 trials) for: η=$η_chosen, η=$η_stable, and η=$η_revised...")
+    
+    for trial in 1:num_trials
+        # Generate new random initial weight vector (μ=0, σ=10)
+        initial_𝐰 = randn(2) * 10.0
+        
+        for η in η_values
+            # Run GD
+            weight_history, _ = gradient_descent(X_aug, y_true; 
+                                                η=η, 
+                                                initial_𝐰=initial_𝐰, 
+                                                max_iterations=max_iters)
+            
+            # Calculate E(w) = ||w - w⋆|| and accumulate
+            for i in 1:length(weight_history)
+                # Safety check against index bounds (should be fine if GD doesn't diverge)
+                if i <= max_iters + 1
+                    𝐰_k_vec = weight_history[i] 
+                    error = norm(𝐰_k_vec - 𝐰_star)
+                    sum_errors[η][i] += error
+                end
+            end
+        end
+    end
+    
+    # Calculate Average Error Histories
+    avg_errors = Dict{Float64, Vector{Float64}}()
+    for η in η_values
+        avg_errors[η] = sum_errors[η] / num_trials
+    end
+    
+    # Plotting the results
+    p = plot(title="Stability Analysis:\nAverage Weight Error E(w) (30 Trials)}",
+            xlabel="Iteration (k)",
+            ylabel="Average E(w) (log scale)",
+            yscale=:log10,
+            xlims=(0, max_iters),
+            ylims=(5, 50),
+            legend=:topright,
+            grid=true)
+            
+    # Plot the results
+    plot!(p, 0:max_iters, avg_errors[η_stable], 
+        label="η = 0.005 (Stable Baseline)", color=:blue, linestyle=:dash, linewidth=2)
+        
+    plot!(p, 0:max_iters, avg_errors[η_chosen], 
+        label="η = 0.02 (Part a Choice - Unstable)", color=:red, linestyle=:solid, linewidth=2)
+
+    plot!(p, 0:max_iters, avg_errors[η_revised], 
+        label="η = 0.01 (Revised Optimal)", color=:green, linestyle=:solid, linewidth=4)
+    
+    display(p)
+    return p
+end
+
+p_b = run_part_b_analysis()
+```
+#### Part c)
+```julia
+function run_part_c_analysis()
+    
+    # Data Generation (same as Part a)
+    Random.seed!(42) 
+    x_data = collect(1.0:0.5:10.0)
+    y_true = 5.0 .+ 3.0 .* x_data + randn(length(x_data)) .* 1.5 
+    X_aug = hcat(ones(length(x_data)), x_data) 
+
+    # Experiment Setup (same as Part a)
+    initial_𝐰 = [-5.0, 5.0] # Fixed starting point 
+    max_iters = 50          
+    η_values = [0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2]
+    unique_colors = [:blue, :cyan, :green, :red, :magenta, :orange, :purple]
+    
+    println("\n--- Part c) Cost J(w) vs. Iteration ---\n")
+    println("Comparing cost convergence for different learning rates...")
+
+    # Initialize plot for Part c
+    p = plot(title="Cost J(w) vs. Iteration for Varying eta ",
+             xlabel="Iteration (k)",
+             ylabel="Cost J(w) (log scale)",
+             yscale=:log10, 
+             xlims=(1, max_iters), 
+             ylims=(1, 5000), 
+             legend=:topright,
+             grid=true)
+             
+    # Run GD and Plot for each learning rate
+    for (idx, η) in enumerate(η_values) # Use enumerate for unique colors
+        # Run GD
+        _, cost_history = gradient_descent(X_aug, y_true; 
+                                           η=η, 
+                                           initial_𝐰=initial_𝐰, 
+                                           max_iterations=max_iters)
+        
+        # Unique color logic
+        color = unique_colors[idx]
+        linewidth = 1
+        label = "eta=$(η)"
+
+        # Apply emphasis to key values
+        if η == 0.01 
+             linewidth = 1
+             label = "eta=$(η) (Revised Optimal)"
+        elseif η == 0.02 
+            linewidth = 1
+            label = "eta=$(η) (Part a Optimal)"
+        end
+        
+        # Plot k=1 to k=max_iters against cost history
+        plot!(p, 1:length(cost_history), cost_history, 
+              color=color, linestyle=:solid, linewidth=linewidth, label=label)
+    end
+    
+    println("Observation: The cost plot reveals the same ranking as the weight error plot.")
+    
+    return p
+end
+
+p_c = run_part_c_analysis()
+display(p_c)
+println("The gradient descent on the quadratic cost function eventually
+converges to the optimal weights w⋆, but was unable to reach it within 50 iterations.")
+```
+#### Part d)
+```julia
+
+function hessian(X::Matrix{Float64})::Matrix{Float64}
+    """Computes the Hessian matrix H of the MSE cost function (H = (XᵀX)/m)."""
+    m = size(X, 1)
+    return (X' * X) / m
+end
+function line_search_gd(X::Matrix{Float64}, y::Vector{Float64};
+                        initial_𝐰::Vector{Float64},
+                        max_iterations::Integer = 1000)::Vector{Vector{Float64}}
+    """Performs Gradient Descent using Exact Line Search (ELS)."""
+    
+    𝐰 = copy(initial_𝐰)
+    weight_history = Vector{Float64}[]
+    push!(weight_history, copy(𝐰)) 
+    
+    H = hessian(X)
+    
+    for i in 1:max_iterations
+        grad_w = gradient(X, y, 𝐰)
+        
+        if norm(grad_w) < 1e-6 # Check for convergence
+            break
+        end
+
+        # Descent direction (negative gradient)
+        d_k = -grad_w
+        
+        # Exact Line Search step size (eta*) for quadratic cost
+        # η* = (d_kᵀ * d_k) / (d_kᵀ * H * d_k)
+        eta_star = dot(d_k, d_k) / dot(d_k, H * d_k)
+
+        # Update weights
+        𝐰 += eta_star * d_k
+        push!(weight_history, copy(𝐰))
+    end
+    
+    return weight_history
+end
+
+
+function run_part_d_analysis()
+    
+    Random.seed!(42) 
+    x_data = collect(1.0:0.5:10.0)
+    y_true = 5.0 .+ 3.0 .* x_data + randn(length(x_data)) .* 1.5 
+    X_aug = hcat(ones(length(x_data)), x_data) 
+    𝐰_star = (X_aug' * X_aug) \ (X_aug' * y_true)
+    
+    initial_𝐰_d = [-5.0, 5.0]
+    
+    weight_history_ls = line_search_gd(X_aug, y_true; 
+                                       initial_𝐰=initial_𝐰_d, 
+                                       max_iterations=5)
+    
+    println("\n--- Part d) Gradient Descent with Line Search Trajectory (First 5 Iterations) ---\n")
+    println("Optimal Weights (w⋆): $(round.(𝐰_star, digits=4))")
+    println("Initial Weights: w₀ = $(round.(initial_𝐰_d, digits=4))")
+    
+    # Print results for the first 5 steps (w0 to w5)
+    H = hessian(X_aug)
+    for i in 1:min(6, length(weight_history_ls))
+        𝐰_k = weight_history_ls[i]
+        cost = cost_function(X_aug, y_true, 𝐰_k)
+        
+        if i > 1
+             grad_w_prev = gradient(X_aug, y_true, weight_history_ls[i-1])
+             d_k = -grad_w_prev
+             eta_star = dot(d_k, d_k) / dot(d_k, H * d_k)
+             println("   (Step size η* used to reach this point: $(round(eta_star, digits=6)))")
+        end
+        
+        println("Iteration $(i-1): w$(i-1) = [$(round(𝐰_k[1], digits=4)), $(round(𝐰_k[2], digits=4))]ᵀ, J(w$(i-1)) = $(round(cost, digits=6))")
+    end
+    
+    return weight_history_ls, 𝐰_star
+end
+(weight_history_ls, w_star) = run_part_d_analysis()
+
+function run_trajectory_comparison_plot()
+    """
+    Runs both fixed-rate GD and Line Search GD and plots their trajectories 
+    on the cost function's contour lines for comparison.
+    """
+    
+    Random.seed!(42) 
+    x_data = collect(1.0:0.5:10.0)
+    y_true = 5.0 .+ 3.0 .* x_data + randn(length(x_data)) .* 1.5 
+    X_aug = hcat(ones(length(x_data)), x_data) 
+    𝐰_star = (X_aug' * X_aug) \ (X_aug' * y_true)
+    
+    initial_𝐰 = [-5.0, 5.0]
+    
+    # 1. Run Fixed-Rate GD (eta=0.01) - 50 iterations
+    # We use η=0.01 as the revised optimal rate from Part b.
+    weight_history_fixed, _ = gradient_descent(X_aug, y_true; 
+                                               η=0.01, 
+                                               initial_𝐰=initial_𝐰, 
+                                               max_iterations=50)
+    
+    # 2. Run Line Search GD - 5 iterations (sufficient for convergence)
+    weight_history_ls = line_search_gd(X_aug, y_true; 
+                                       initial_𝐰=initial_𝐰, 
+                                       max_iterations=5)
+    
+    # --- 3. Contour Setup ---
+    # Define weight ranges for the contour plot grid
+    w0_range = range(-6.0, stop=6.0, length=100)
+    w1_range = range(2.0, stop=5.0, length=100)
+    
+    # Wrapper function for cost calculation on a grid
+    function J_wrapper(w0, w1)
+        return cost_function(X_aug, y_true, [w0, w1])
+    end
+    
+    # Generate the contour plot (Cost Surface Level Sets)
+    p = contour(w0_range, w1_range, J_wrapper, 
+                fill=true, 
+                levels=20, # Number of contour lines
+                cbar=false, 
+                title="GD Trajectory Comparison (Contour Plot)",
+                xlabel="Bias (w₀)", 
+                ylabel="Slope (w₁)",
+                legend=:topright,
+                xlims=(minimum(w0_range), maximum(w0_range)),
+                ylims=(minimum(w1_range), maximum(w1_range)))
+                
+
+    # 4. Plot Line Search GD Trajectory (w₀ to w₅)    
+    w0_ls = [w[1] for w in weight_history_ls]
+    w1_ls = [w[2] for w in weight_history_ls]
+    
+    plot!(p, w0_ls, w1_ls, 
+          label="Exact Line Search Path", 
+          color=:red, 
+          linewidth=3, 
+          marker=:diamond, 
+          markersize=5, 
+          markercolor=:red)
+          
+    # 5. Plot Fixed-Rate GD Trajectory (w₀ to w₅₀)
+    w0_fixed = [w[1] for w in weight_history_fixed]
+    w1_fixed = [w[2] for w in weight_history_fixed]
+    
+    plot!(p, w0_fixed, w1_fixed, 
+          label="Fixed η=0.01 Path", 
+          color=:blue, 
+          linewidth=2, 
+          marker=:circle, 
+          markersize=3, 
+          markercolor=:blue)
+          
+
+    # 6. Plot the Optimal Solution w*
+    scatter!(p, [𝐰_star[1]], [𝐰_star[2]], 
+             label="Optimal w⋆", 
+             marker=:star, 
+             markersize=10, 
+             markercolor=:yellow, 
+             markerstrokecolor=:black)
+             
+    # Annotate initial point w0
+    annotate!(p, initial_𝐰[1] - 0.5, initial_𝐰[2], 
+              text("w₀", 10, :black, :left))
+
+    # Annotate final point for Line Search (w5)
+    annotate!(p, w0_ls[end] + 0.1, w1_ls[end], 
+              text("w₅", 10, :red, :right))
+
+    # Annotate final point for Fixed GD (w50)
+    annotate!(p, w0_fixed[end] + 0.1, w1_fixed[end], 
+              text("w₅₀", 10, :blue, :left))
+              
+    return p
+end
+run_trajectory_comparison_plot()
+```

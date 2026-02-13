@@ -1,0 +1,220 @@
+## Problem 9
+```julia
+using LinearAlgebra
+using Plots
+using Random
+
+## Problem 9: Levenberg-Marquardt Method on Himmelblau’s Cost Function
+
+# --- 1. Himmelblau Cost Function (J(w)) ---
+
+function himmelblau_cost(w::Vector{Float64})::Float64
+    """ J(w) = (w₁² + w₂ - 11)² + (w₁ + w₂² - 7)² """
+    w1, w2 = w[1], w[2]
+    term1 = w1^2 + w2 - 11.0
+    term2 = w1 + w2^2 - 7.0
+    return term1^2 + term2^2
+end
+
+# --- 2. Himmelblau Gradient Function (g = ∇J(w)) ---
+
+function himmelblau_gradient(w::Vector{Float64})::Vector{Float64}
+    """ Gradient of Himmelblau's function. """
+    w1, w2 = w[1], w[2]
+    T1 = w1^2 + w2 - 11.0
+    T2 = w1 + w2^2 - 7.0
+    
+    dw1 = 4.0 * w1 * T1 + 2.0 * T2
+    dw2 = 2.0 * T1 + 4.0 * w2 * T2
+    
+    return [dw1, dw2]
+end
+
+# --- 3. Himmelblau Hessian Function (H) ---
+
+function himmelblau_hessian(w::Vector{Float64})::Matrix{Float64}
+    """ Hessian matrix of Himmelblau's function. """
+    w1, w2 = w[1], w[2]
+    
+    # Pre-calculate terms
+    T1 = w1^2 + w2 - 11.0
+    T2 = w1 + w2^2 - 7.0
+    
+    # H11: 4*T1 + 8*w1^2 + 2
+    H11 = 4.0 * T1 + 8.0 * w1^2 + 2.0
+    
+    # H22: 2 + 4*T2 + 8*w2^2
+    H22 = 2.0 + 4.0 * T2 + 8.0 * w2^2
+    
+    # H12 = H21: 4*w1 + 4*w2
+    H12 = 4.0 * w1 + 4.0 * w2
+    
+    return [
+        H11 H12; 
+        H12 H22
+    ]
+end
+
+# --- 4. Levenberg-Marquardt Algorithm ---
+
+function levenberg_marquardt(
+    initial_w::Vector{Float64};
+    λ::Float64 = 0.00001,             
+    max_iterations::Integer = 1000,
+    tolerance::Float64 = 1e-6
+)::Vector{Vector{Float64}}
+    """
+    Implements Levenberg-Marquardt Method (simplistic fixed-λ version 
+    for illustration): Δw = -[H + λI]⁻¹g
+    """
+    
+    w = copy(initial_w)
+    weight_history = Vector{Float64}[]
+    push!(weight_history, copy(w))
+    
+    # Use Diagonal to explicitly create the identity matrix variable
+    n = length(w)
+    I_matrix = Diagonal(ones(n)) 
+    
+    current_lambda = λ # Use a fixed lambda for simplicity in this example
+    
+    for k in 1:max_iterations
+        g = himmelblau_gradient(w)
+        H = himmelblau_hessian(w)
+        
+        # Check for convergence based on gradient norm
+        if norm(g) < tolerance
+            println("Convergence achieved by small gradient after $k steps.")
+            break
+        end
+
+        try
+            # LM Step: Δw = -[H + λI]⁻¹g
+            # H_damped = H + λI_matrix
+            H_damped = H + current_lambda * I_matrix # Uses the explicitly defined I_matrix
+            
+            # Solve the linear system for the step direction: [H + λI] Δw = -g
+            delta_w = H_damped \ -g 
+            
+            # Update rule: w ← w + Δw (fixed step size of 1)
+            w += delta_w
+            push!(weight_history, copy(w))
+            
+            # Check for stagnation
+            if norm(delta_w) < 1e-8
+                println("Stagnation achieved after $k steps.")
+                break
+            end
+
+        catch e
+            println("Run terminated due to numerical instability at step $k.")
+            break
+        end
+    end
+    
+    return weight_history
+end
+
+
+# --- 5. Plotting Function (Example Trajectory) ---
+
+function plot_lm_trajectory(w_history::Vector{Vector{Float64}}; λ::Float64)
+    """ Plots the contour of Himmelblau's function and the LM trajectory. """
+    
+    w_stars = [
+        [3.0, 2.0],        
+        [-2.805118, 3.131312], 
+        [-3.779310, -3.283186], 
+        [3.584428, -1.848126]  
+    ]
+    
+    range_lim = 6.0
+    w_range = range(-range_lim, stop=range_lim, length=100)
+    J_surface = [himmelblau_cost([w1, w2]) for w2 in w_range, w1 in w_range]
+
+    p = contour(w_range, w_range, J_surface, 
+                fill=true, 
+                levels=vcat(range(0.1, 10.0, length=10), range(20.0, 500.0, length=10)), 
+                cbar=false, 
+                title="Levenberg-Marquardt Trajectory (λ=$λ)",
+                xlabel="w₁", 
+                ylabel="w₂",
+                legend=:bottomright,
+                colormap=:viridis,
+                size=(700, 700),
+                aspect_ratio=:equal,
+                xlims=(-range_lim, range_lim),
+                ylims=(-range_lim, range_lim))
+
+    # Plot Minima
+    scatter!(p, [w[1] for w in w_stars], [w[2] for w in w_stars], 
+             label="Global Minima (J=0)", 
+             marker=:star, markersize=10, markercolor=:red, markerstrokecolor=:black)
+             
+    # Plot Path
+    w1_path = [w[1] for w in w_history]
+    w2_path = [w[2] for w in w_history]
+    
+    plot!(p, w1_path, w2_path, 
+          label="LM Path", 
+          color=:cyan, 
+          linewidth=2, 
+          markershape=:circle, 
+          markersize=3, 
+          markercolor=:white,
+          alpha=0.9)
+
+    # Plot Start and End Points
+    scatter!(p, [w1_path[1]], [w2_path[1]], 
+             label="Start (w₀)", 
+             markersize=7, markershape=:diamond, markercolor=:green)
+
+    scatter!(p, [w1_path[end]], [w2_path[end]], 
+             label="End (w_final)", 
+             markersize=7, markershape=:square, markercolor=:yellow)
+
+    display(p)
+end
+
+# --- Execution: Single Run for Discussion ---
+
+Random.seed!(43) # Use a different seed for a new path
+initial_w = randn(2) # Gaussian initialization: μ=0, σ=1 (e.g., w₀ ≈ [0.28, -0.73])
+lambda_val = 0.00001 # Small lambda -> close to Newton's Method
+
+println("--- Starting Levenberg-Marquardt Run (λ=$lambda_val) ---")
+w_history = levenberg_marquardt(initial_w; λ=lambda_val)
+
+plot_lm_trajectory(w_history; λ=lambda_val)
+
+# Print final results:
+final_w = w_history[end]
+final_cost = himmelblau_cost(final_w)
+steps = length(w_history) - 1
+
+println("\n--- Levenberg-Marquardt Results (λ=$lambda_val) ---")
+println("Initial Weights (w₀): $(round.(w_history[1], digits=4))")
+println("Initial Cost: J(w₀) = $(round(himmelblau_cost(w_history[1]), digits=4))")
+println("Final Weights after $steps steps: $(round.(final_w, digits=4))")
+println("Final Cost: J(w_final) = $(round(final_cost, digits=6))")
+
+lambda_val = 10.0 # NEW lambda value for comparison
+
+println("--- Starting Levenberg-Marquardt Run (λ=$lambda_val) ---")
+w_history = levenberg_marquardt(initial_w; λ=lambda_val)
+
+plot_lm_trajectory(w_history; λ=lambda_val)
+
+# Print final results:
+final_w = w_history[end]
+final_cost = himmelblau_cost(final_w)
+steps = length(w_history) - 1
+
+println("\n--- Levenberg-Marquardt Results (λ=$lambda_val) ---")
+println("Initial Weights (w₀): $(round.(w_history[1], digits=4))")
+println("Initial Cost: J(w₀) = $(round(himmelblau_cost(w_history[1]), digits=4))")
+println("Final Weights after $steps steps: $(round.(final_w, digits=4))")
+println("Final Cost: J(w_final) = $(round(final_cost, digits=6))")
+
+println("The Levenberg-Marquardt method is highly ineffective on the Himmelblau function. ")
+```

@@ -1,0 +1,190 @@
+## Problem 2
+
+#### Part a)
+```julia
+using Plots
+using Random
+using LinearAlgebra
+using Statistics
+include("../src/Problem2.jl")
+include("../src/Problem1.jl")
+include("../src/Problem0.jl")
+```
+#### Part b)
+```julia
+
+function calculate_accuracy_percent(X::Matrix{Float64}, 𝐝::Vector{Float64}, 𝐰::Vector{Float64})::Float64
+    correct_predictions = 0
+    N = size(X, 1) # Get the number of rows (data points)
+    for n ∈ 1:N
+        # Pass the n-th row as a vector (X[n, :])
+        y = perceptron(X[n, :], 𝐰) 
+        if y == 𝐝[n]
+            correct_predictions += 1
+        end
+    end
+    return (correct_predictions / N) * 100.0
+end
+function run_average_perceptron_experiment()
+    N_data = 500         # Total data points
+    η = 0.1              # Learning rate
+    max_epochs = 50      # Total epochs to run
+    n_trials = 30        # Number of trials for averaging
+    d_values = [0.5, 0.0, -0.5]
+    r_param = 1.0
+    w_param = 0.6
+    
+    accuracy_sums = Dict{Float64, Vector{Float64}}()
+    
+    for d in d_values
+        accuracy_sums[d] = zeros(max_epochs)
+        
+        for trial ∈ 1:n_trials
+            # 1. Generate new data using your doublemoon function (Matrix format)
+            X_mat, D_raw = doublemoon(N_data, d=d, r=r_param, w=w_param)
+            
+            # 2. Prepare data for training
+            D = [d_val == 1.0 ? 1.0 : -1.0 for d_val in D_raw] # Correct labels
+            X_vec = matrix_to_vecvec(X_mat) # Convert to Vector{Vector{Float64}} for trainPerceptron
+            
+            # Initialize w: size is 2 features + 1 bias = 3
+            𝐰 = randn(3) 
+            
+            # 3. Run training epoch by epoch
+            for epoch ∈ 1:max_epochs
+                # Call the single-epoch function (only updates weights)
+                𝐰 = trainPerceptron(X_vec, D, η, 𝐰=𝐰, maxIter=1)
+                
+                # Calculate accuracy externally on the Matrix format (X_mat)
+                acc = calculate_accuracy_percent(X_mat, D, 𝐰)
+                accuracy_sums[d][epoch] += acc
+            end
+        end
+    end
+
+    # --- Averaging and Plotting ---
+    averaged_accuracies = Dict{Float64, Vector{Float64}}()
+    for d in d_values
+        averaged_accuracies[d] = accuracy_sums[d] ./ n_trials
+    end
+
+    p = plot(title="Avg. Perceptron Accuracy (30 Trials)\nDouble Moon: r=1, w=0.6, NOISELESS",
+            xlabel="Epoch",
+            ylabel="Average Training Accuracy (%)",
+            ylim=(80, 102),
+            legend=:right,
+            lw=4)
+
+    epoch_range = collect(1:max_epochs)    
+    plot!(p, epoch_range, averaged_accuracies[0.5], label="d = 0.5 (Linearly Separable)", color=:green, linewidth=3)
+    plot!(p, epoch_range, averaged_accuracies[0.0], label="d = 0.0 (Touching)", color=:blue, linewidth=3)
+    plot!(p, epoch_range, averaged_accuracies[-0.5], label="d = -0.5 (Non-linearly Separable)", color=:red, linewidth=3)
+    
+
+    display(p) 
+    return
+end
+run_average_perceptron_experiment()
+```
+#### Part c)
+```julia
+function plot_boundary(X::Matrix{Float64}, D::Vector{Float64}, 𝐰::Vector{Float64}, d::Float64)
+    N = size(X, 1)
+    
+    # 1. Classify all points and categorize
+    C1_correct_x, C1_correct_y = Float64[], Float64[] # Class 1 (+1.0) Correct: Blue
+    C2_correct_x, C2_correct_y = Float64[], Float64[] # Class 2 (-1.0) Correct: Green
+    Incorrect_x, Incorrect_y = Float64[], Float64[]   # Misclassified: Red
+    
+    for n in 1:N
+        x = X[n, :]
+        d_n = D[n]
+        y = perceptron(x, 𝐰)
+        
+        if y == d_n
+            # Correctly classified
+            if d_n == 1.0
+                push!(C1_correct_x, x[1]); push!(C1_correct_y, x[2])
+            else # d_n == -1.0
+                push!(C2_correct_x, x[1]); push!(C2_correct_y, x[2])
+            end
+        else
+            # Incorrectly classified
+            push!(Incorrect_x, x[1]); push!(Incorrect_y, x[2])
+        end
+    end
+    
+    accuracy = (length(C1_correct_x) + length(C2_correct_x)) / N * 100.0
+
+    # 2. Setup the Scatter Plot
+    p = plot(title="d = $d (Acc: $(round(accuracy, digits=1))%)", 
+            xlabel="Feature x₁", 
+            ylabel="Feature x₂",
+            legend=:bottomleft,
+            aspect_ratio=:equal,
+            markersize=3,
+            markeralpha=0.7,
+            xlim=(-1.5, 2.5),
+            ylim=(-2, 1.5))
+    # Plot data points
+    scatter!(p, C1_correct_x, C1_correct_y, color=:blue, label="C1 Correct")
+    scatter!(p, C2_correct_x, C2_correct_y, color=:green, marker=:square, label="C2 Correct")
+    scatter!(p, Incorrect_x, Incorrect_y, color=:red, marker=:cross, markersize=5, label="Incorrect")
+
+    # 3. Plot Decision Boundary (w₀ + w₁x₁ + w₂x₂ = 0)
+    w0, w1, w2 = 𝐰 # Bias, Feature 1 weight, Feature 2 weight
+
+    x_min, x_max = xlims(p)
+    
+    if abs(w2) > 1e-6 # Standard case: Solve for x₂
+        x_line = range(x_min, stop=x_max, length=100)
+        y_line = @. -(w0 + w1 * x_line) / w2
+        plot!(p, x_line, y_line, color=:black, linewidth=3, label="Decision Boundary")
+    else # Special case: Vertical line (w₂ ≈ 0)
+        x_vert = -w0 / w1
+        vline!(p, [x_vert], color=:black, linewidth=3, label="Decision Boundary")
+    end
+
+    return p
+end
+
+function run_boundary_visualization_experiment()
+    # Fixed parameters for visualization
+    N_data = 1000        
+    η = 0.1
+    max_epochs = 50      # Run for 50 epochs to ensure convergence/stability
+    d_values = [0.5, 0.0, -0.5] 
+    r_param = 1.0 
+    w_param = 0.6 
+    
+    # Storage for final plots
+    plots = Plots.Plot[]
+    
+    for d in d_values 
+        # 1. Generate a single dataset for visualization
+        X_mat, D = doublemoon(N_data, d=d, r=r_param, w=w_param) 
+        X_vec = [X_mat[i, :] for i in 1:size(X_mat, 1)] # Convert to Vector{Vector{Float64}}
+        
+        # 2. Train Perceptron to get final weights (w)
+        # Initialize w randomly (3 elements: bias, w1, w2)
+        𝐰 = randn(3)  
+        
+        # Run training for 50 epochs 
+        for epoch ∈ 1:max_epochs 
+            𝐰 = trainPerceptron(X_vec, D, η, 𝐰=𝐰, maxIter=1) 
+        end
+        
+        # 3. Generate the visualization plot using the final weights
+        p = plot_boundary(X_mat, D, 𝐰, d)
+        push!(plots, p)
+    end 
+    
+    # Combine all three plots into a single figure
+    combined_plot = plot(plots..., layout=(1, 3), size=(1200, 450), 
+                        plot_title="Perceptron Decision Boundaries (Final Weights after 50 Epochs)")
+    
+    display(combined_plot)
+    return 
+end
+run_boundary_visualization_experiment()
+```

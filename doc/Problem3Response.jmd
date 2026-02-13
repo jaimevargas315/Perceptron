@@ -1,0 +1,331 @@
+## Problem 3
+
+#### Part a)
+```julia
+include("../src/Problem0.jl")
+include("../src/Problem1.jl")
+include("../src/Problem3.jl")
+```
+#### Part b)
+```julia
+using LinearAlgebra
+using Random
+using Plots
+using Statistics
+
+function run_batch_perceptron_plot(d_param::Float64, max_epochs::Integer, η::Float64)
+    N_data = 500
+    r_param = 10.0 # Using values from your doublemoon definition
+    w_param = 6.0
+
+    # 1. Data Generation and Conversion
+    Random.seed!(42) # Ensure reproducible data
+    X_mat, D_raw = doublemoon(N_data, d=d_param, r=r_param, w=w_param)
+    # Convert labels: 1.0 -> 1.0, 2.0 -> -1.0
+    D = [d_val == 1.0 ? 1.0 : -1.0 for d_val in D_raw] 
+    X_vec = matrix_to_vecvec(X_mat)
+    
+    # 2. Training
+    Random.seed!(42) # Ensure reproducible weights
+    𝐰_initial = randn(3)
+    # trainBatchPerceptron now returns just the final weights (Vector{Float64})
+    𝐰_final, actual_epochs = trainBatchPerceptron(X_vec, D, η, 𝐰=𝐰_initial, maxIter=max_epochs)
+    # 3. Classification and Data Categorization for Plotting
+    blue_x, blue_y = Float64[], Float64[]    # Correctly Classified Class +1
+    green_x, green_y = Float64[], Float64[]  # Correctly Classified Class -1
+    red_x, red_y = Float64[], Float64[]      # Incorrectly Classified
+    
+    for n ∈ 1:N_data
+        x_n = X_mat[n, :]
+        d_n = D[n]
+        y_n = perceptron(x_n, 𝐰_final) 
+        
+        if isapprox(y_n, d_n, atol=1e-9) # Correctly Classified
+            if isapprox(d_n, 1.0, atol=1e-9)
+                push!(blue_x, x_n[1]); push!(blue_y, x_n[2])
+            else
+                push!(green_x, x_n[1]); push!(green_y, x_n[2])
+            end
+        else # Incorrectly Classified
+            push!(red_x, x_n[1]); push!(red_y, x_n[2])
+        end
+    end
+    
+    # 4. Generate the Decision Surface Line
+    w0, w1, w2 = 𝐰_final[1], 𝐰_final[2], 𝐰_final[3]
+    x_min, x_max = minimum(X_mat[:, 1]), maximum(X_mat[:, 1])
+    x_plot = range(x_min - 1.0, x_max + 1.0, length=100)
+    
+    y_plot = nothing
+    if abs(w2) > 1e-9
+        y_line(x) = -(w0 + w1 * x) / w2
+        y_plot = y_line.(x_plot)
+    end
+    
+    # 5. Plotting
+    p = plot(title="Batch Perceptron Classification (d=$d_param, η=$η,\nEpochs=$max_epochs)",
+             xlabel="x₁", ylabel="x₂", legend=:topleft, aspect_ratio=:equal)
+    
+    scatter!(p, blue_x, blue_y, color=:blue, label="Class +1 Correct", markersize=4, markerstrokewidth=0)
+    scatter!(p, green_x, green_y, color=:green, label="Class -1 Correct", markersize=4, markerstrokewidth=0)
+    scatter!(p, red_x, red_y, color=:red, label="Misclassified", markersize=4, markerstrokewidth=0)
+
+    if y_plot !== nothing
+        plot!(p, x_plot, y_plot, linecolor=:black, linewidth=2, label="Decision Surface")
+    else
+        vline!(p, [-w0 / w1], linecolor=:black, linewidth=2, label="Decision Surface")
+    end
+    
+    return p
+end
+
+# --- Execution ---
+p_final = run_batch_perceptron_plot(0.0, 100, 0.01)
+display(p_final)
+```
+#### Part c)
+```julia
+function calculate_accuracy_percent(X_vec::Vector{Vector{Float64}}, 𝐝::Vector{Float64}, 𝐰::Vector{Float64})::Float64
+    correct_predictions = 0
+    N = length(X_vec)
+    for n ∈ 1:N
+        y = perceptron(X_vec[n], 𝐰)
+        if y == 𝐝[n]
+            correct_predictions += 1
+        end
+    end
+    return (correct_predictions / N) * 100.0
+end
+# --- Single-Epoch Batch Training Function ---
+
+function trainBatchPerceptron_Epoch(X_vec::Vector{Vector{Float64}}, 𝐝::Vector{Float64}, η::Float64, 𝐰::Vector{Float64})
+    """Performs the accumulation and single batch update for one epoch."""
+    
+    Δ𝐰_batch = zeros(length(𝐰))
+    N = length(X_vec)
+
+    # Accumulate error over the entire batch
+    for n in 1:N
+        x_n = X_vec[n]
+        d_n = 𝐝[n]
+        
+        # Compute the weighted sum and activation output
+        x_aug = [1.0; x_n]
+        nu = dot(𝐰, x_aug)
+        y = sign(nu) # Using Julia's standard sign function (or your perceptron logic)
+        
+        e = d_n - y
+        
+        # Accumulate the correction term
+        if abs(e) > 1e-12 
+            Δ𝐰_batch .+= e * x_aug 
+        end
+    end
+    
+    # APPLY THE BATCH UPDATE: w <- w + η * Δ𝐰_batch
+    𝐰 .+= η * Δ𝐰_batch
+    
+    return 𝐰
+end
+function run_50_trial_batch_average(N_data::Integer, r_param::Float64, w_param::Float64, 
+                                    d_param::Float64, max_epochs::Integer, 
+                                    η::Float64, n_trials::Integer)
+
+    # 1. Generate the SINGLE DATASET (Reused across all 50 trials)
+    X_mat, D_raw = doublemoon(N_data, d=d_param, r=r_param, w=w_param)
+    D = [d_val == 1.0 ? 1.0 : -1.0 for d_val in D_raw] # Correct labels
+    X_vec = matrix_to_vecvec(X_mat) # Convert for the epoch function
+
+    # Array to sum accuracies over all trials
+    accuracy_sums = zeros(max_epochs)
+
+    # 2. Run 50 trials
+    for trial in 1:n_trials
+        # Initialize weights randomly for each new trial
+        𝐰 = randn(3) 
+        
+        # Train for max_epochs
+        for epoch in 1:max_epochs
+            # Perform one batch training epoch (updates w)
+            𝐰 = trainBatchPerceptron_Epoch(X_vec, D, η, 𝐰)
+            
+            # Calculate accuracy with the updated weights
+            acc = calculate_accuracy_percent(X_vec, D, 𝐰)
+            
+            # Accumulate the trial results
+            accuracy_sums[epoch] += acc
+        end
+    end
+
+    # 3. Compute the average accuracy
+    avg_accuracies = accuracy_sums ./ n_trials
+    epoch_range = collect(1:max_epochs)
+
+    # 4. Plotting
+    p = plot(epoch_range, avg_accuracies, label="d = $d_param (Avg. over 50 Trials)", 
+            color=:purple, linewidth=3)
+
+    plot!(p, title="Avg. Batch Perceptron Accuracy (50 Trials, d=$d_param)",
+            xlabel="Epoch",
+            ylabel="Average Training Accuracy (%)",
+            ylim=(40, 100),
+            legend=:bottomright)
+    hline!([50], label="Random Guessing (50%)", linestyle=:dot, color=:gray)
+    
+    # Save the plot
+    display(p)
+    return
+end
+
+# Execute the experiment function
+run_50_trial_batch_average(500, 1.0, 0.6, 0.5, 100, 0.01, 50)
+println("\nAverage accuracy quickly reaches near 100% after
+only a few epochs. This is expected since the data is linearly separable")
+```
+#### Part d)
+```julia
+run_50_trial_batch_average(500, 1.0, 0.6, 0.0, 100, 0.01, 50)
+println("\nAverage accuracy approaches 100% but at a slower rate compared to d=0.5.
+This is because the classes are just touching, making classification more challenging.")
+```
+#### Part e)
+```julia
+run_50_trial_batch_average(500, 1.0, 0.6, -0.5, 100, 0.01, 50)
+println("\nAverage accuracy plateaus around 75-80% due to the non-linearly separable nature
+of the data. The perceptron cannot perfectly classify all points in this scenario.")
+```
+#### Part f)
+```julia
+function run_perceptron_gauss_xor_plot(N_data::Integer, σ²::Float64, η::Float64, max_epochs::Integer)
+    # Set seed for reproducibility for both data and initial weights
+    Random.seed!(123) 
+
+    # 1. Data Generation
+    X_vec, D = GaussX(N_data, σ²=σ²)
+    X_mat_for_plotting = hcat(X_vec...)' # Convert to Matrix for plotting range
+
+    # 2. Training
+    # Destructure the two return values from trainBatchPerceptron
+    𝐰_final, actual_epochs = trainBatchPerceptron(X_vec, D, η, maxIter=max_epochs)
+    println("Training converged in $actual_epochs epochs or reached max epochs.")
+
+    # 3. Classification and Data Categorization for Plotting
+    class1_correct_x, class1_correct_y = Float64[], Float64[]    # Target +1
+    class2_correct_x, class2_correct_y = Float64[], Float64[]    # Target -1
+    misclassified_x, misclassified_y = Float64[], Float64[]     # Errors
+    
+    for n ∈ 1:N_data
+        x_n = X_vec[n] # Get the current data point (Vector{Float64})
+        d_n = D[n]     # Get the desired output
+        
+        # Call perceptron with correct types: perceptron(::Vector{Float64}, ::Vector{Float64})
+        y_n = perceptron(x_n, 𝐰_final) 
+        
+        if isapprox(y_n, d_n, atol=1e-9) # Correctly Classified
+            if isapprox(d_n, 1.0, atol=1e-9)
+                push!(class1_correct_x, x_n[1]); push!(class1_correct_y, x_n[2])
+            else # d_n is -1.0
+                push!(class2_correct_x, x_n[1]); push!(class2_correct_y, x_n[2])
+            end
+        else # Incorrectly Classified
+            push!(misclassified_x, x_n[1]); push!(misclassified_y, x_n[2])
+        end
+    end
+
+    # 4. Decision Surface
+    w0, w1, w2 = 𝐰_final[1], 𝐰_final[2], 𝐰_final[3]
+    
+    x_min, x_max = minimum(X_mat_for_plotting[:, 1]), maximum(X_mat_for_plotting[:, 1])
+    # Extend plot range slightly beyond data limits
+    x_plot = range(x_min - 0.5, x_max + 0.5, length=100)
+    
+    # Solve for y: y = -(w_0 + w_1*x) / w_2
+    y_plot_line = nothing
+    if abs(w2) > 1e-9 
+        y_line_func(x) = -(w0 + w1 * x) / w2
+        y_plot_line = y_line_func.(x_plot)
+    end
+    
+    # 5. Plotting
+    p = plot(title="Batch Perceptron on Gaussian XOR (σ²=$σ²)",
+             xlabel="x₁", ylabel="x₂", legend=:topright, aspect_ratio=:equal, xlims=(-3,3), ylims=(-3,3))
+    
+    scatter!(p, class1_correct_x, class1_correct_y, color=:blue, label="Class +1 Correct", markersize=4, markerstrokewidth=0)
+    scatter!(p, class2_correct_x, class2_correct_y, color=:green, label="Class -1 Correct", markersize=4, markerstrokewidth=0)
+    scatter!(p, misclassified_x, misclassified_y, color=:red, label="Misclassified", markersize=6, marker=:x, markerstrokewidth=1.5)
+
+    if y_plot_line !== nothing
+        plot!(p, x_plot, y_plot_line, linecolor=:black, linewidth=2, label="Decision Surface")
+    else
+        vline!(p, [-w0 / w1], linecolor=:black, linewidth=2, label="Decision Surface")
+    end
+    
+    display(p)
+    return 𝐰_final
+end
+
+# --- Script Execution for Gaussian XOR ---
+run_perceptron_gauss_xor_plot(500, 1.0, 0.01, 100)
+println("\nThe perceptron struggles with the Gaussian XOR data. this is expected since the data is not linearly separable.
+The decision boundary is unable to perfectly classify all points, leading to misclassifications.")
+```
+#### Part g)
+```julia
+function run_50_trial_gauss_average(N_data::Integer, σ²::Float64, max_epochs::Integer, η::Float64, n_trials::Integer)
+
+    # 1. Generate the SINGLE DATASET (Reused across all 50 trials)
+    # Fix a seed for data generation to ensure the same dataset is used every time.
+    Random.seed!(42) 
+    X_vec, D = GaussX(N_data, σ²=σ²)
+    # Convert X_vec to Matrix
+    X_mat_raw = hcat(X_vec...)'
+    # Augment X_mat with a column of ones for the bias term
+    N_data = size(X_mat_raw, 1)
+    X_mat = hcat(ones(N_data), X_mat_raw)
+
+    # Array to sum accuracies over all trials (size = max_epochs)
+    accuracy_sums = zeros(max_epochs)
+
+    # 2. Run 50 trials
+    for trial in 1:n_trials
+        # Randomly initialize weights for each new trial. 
+        # We need a different seed *for the weights* each time.
+        Random.seed!(trial + 1000) 
+        𝐰 = randn(size(X_mat, 2)) 
+        
+        # Train for max_epochs
+        for epoch in 1:max_epochs
+            # Perform one batch training epoch (updates w)
+            𝐰 = trainBatchPerceptron_Epoch(X_vec, D, η, 𝐰)
+            
+            # Calculate accuracy with the updated weights
+            acc = calculate_accuracy_percent(X_vec, D, 𝐰)
+            
+            # Accumulate the trial results
+            accuracy_sums[epoch] += acc
+        end
+    end
+
+    # 3. Compute the average accuracy
+    avg_accuracies = accuracy_sums ./ n_trials
+    epoch_range = collect(1:max_epochs)
+
+    # 4. Plotting
+    p = plot(epoch_range, avg_accuracies, label="Avg. Accuracy (N=$n_trials Trials)", 
+             color=:red, linewidth=2)
+
+    plot!(p, title="Avg. Batch Perceptron Accuracy on Gaussian XOR (σ²=$σ²)",
+              xlabel="Epoch",
+              ylabel="Average Training Accuracy (%)",
+              ylim=(45, 55),
+              legend=:bottomright)
+    hline!([50], label="Random Guessing (50%)", linestyle=:dot, color=:black, linewidth=3)
+    
+    display(p)
+    return avg_accuracies
+end
+
+# Execute the experiment function
+run_50_trial_gauss_average(1000, 2.0, 500, 0.01, 50)
+println("\nThe average accuracy hovers around 50%, indicating that the perceptron is essentially guessing.")
+```

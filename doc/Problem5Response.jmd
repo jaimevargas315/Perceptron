@@ -1,0 +1,260 @@
+## Problem 5
+
+#### Part a)
+```julia
+using LinearAlgebra
+using Plots # Required for plotting the trajectory
+
+## Gradient Descent for Rosenbrock's Cost Function
+
+# --- 1. Rosenbrock Cost Function ---
+
+function rosenbrock_cost(w::Vector{Float64})::Float64
+    """
+    J(w) = (1 - w1)^2 + 100(w2 - w1^2)^2, where w = [w1, w2]
+    Minimal value J(w*) = 0 at w* = [1, 1]
+    """
+    w1, w2 = w[1], w[2]
+    return (1.0 - w1)^2 + 100.0 * (w2 - w1^2)^2
+end
+
+# --- 2. Rosenbrock Gradient Function ---
+
+function rosenbrock_gradient(w::Vector{Float64})::Vector{Float64}
+    """Gradient of the Rosenbrock function, ∇J(w)."""
+    w1, w2 = w[1], w[2]
+    
+    # dJ/dw1 = -2(1 - w1) - 400*w1*(w2 - w1^2)
+    dw1 = -2.0 * (1.0 - w1) - 400.0 * w1 * (w2 - w1^2)
+    
+    # dJ/dw2 = 200 * (w2 - w1^2)
+    dw2 = 200.0 * (w2 - w1^2)
+    
+    return [dw1, dw2]
+end
+
+# --- 3. Batch Gradient Descent Algorithm ---
+
+function gradient_descent_rosenbrock(
+    initial_w::Vector{Float64};
+    η::Float64 = 0.001,
+    max_iterations::Integer = 500
+)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Performs Batch Gradient Descent on Rosenbrock's function.
+    """
+    
+    w = copy(initial_w)
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    push!(weight_history, copy(w)) 
+    
+    for k in 1:max_iterations
+        grad_w = rosenbrock_gradient(w)
+        
+        # Update rule
+        w -= η * grad_w
+        
+        push!(weight_history, copy(w))
+        push!(cost_history, rosenbrock_cost(w))
+    end
+    
+    return weight_history, cost_history
+end
+
+# --- 4. Plotting Function (Requires 'Plots' package) ---
+
+function plot_rosenbrock_trajectory(w_history::Vector{Vector{Float64}}, iterations::Integer)
+    """
+    Plots the contour of the Rosenbrock function and the GD trajectory.
+    Note: The 'iterations' argument here refers to the max iterations set, 
+    but the title uses the actual number of steps taken (length(w_history)-1).
+    """
+    
+    w_star = [1.0, 1.0]
+    
+    # Define ranges for the contour plot grid
+    w1_range = range(-0.6, stop=1.2, length=100)
+    w2_range = range(-0.2, stop=1.2, length=100)
+    
+    # Calculate the cost surface for the contour
+    J_surface = [rosenbrock_cost([w1, w2]) for w2 in w2_range, w1 in w1_range]
+
+    # Create the contour plot
+    p = contour(w1_range, w2_range, J_surface, 
+                fill=true, 
+                levels=vcat([0.1, 0.5, 1.0], range(2.0, 10.0, length=10), range(15.0, 100.0, length=5)), 
+                cbar=false, 
+                title="Gradient Descent Line Search (Steps: $(length(w_history)-1))",
+                xlabel="w₁", 
+                ylabel="w₂",
+                legend=:bottomleft,
+                colormap=:magma)
+
+    # Convert history into plottable vectors
+    w1_path = [w[1] for w in w_history]
+    w2_path = [w[2] for w in w_history]
+    
+    # Plot the GD path
+    plot!(p, w1_path, w2_path, 
+          label="BLS Path", 
+          color=:gold, 
+          linewidth=2, 
+          markershape=:circle, 
+          markersize=3, 
+          markercolor=:white,
+          alpha=0.9)
+
+    # Plot the Optimal Solution w*
+    scatter!(p, [w_star[1]], [w_star[2]], 
+             label="Optimal w*", 
+             marker=:star, 
+             markersize=10, 
+             markercolor=:red, 
+             markerstrokecolor=:black)
+             
+    # Plot Start and End Points
+    scatter!(p, [w1_path[1]], [w2_path[1]], 
+             label="Start (w₀)", 
+             markersize=7, 
+             markershape=:diamond,
+             markercolor=:green)
+
+    scatter!(p, [w1_path[end]], [w2_path[end]], 
+             label="End (w_final)", 
+             markersize=7, 
+             markershape=:square,
+             markercolor=:yellow)
+
+    display(p)
+end
+
+
+# --- Execution Example ---
+initial_w = [-0.5, 0.5]
+η_test = 0.001
+iterations = 500
+
+(w_history, j_history) = gradient_descent_rosenbrock(initial_w; η=η_test, max_iterations=iterations)
+
+plot_rosenbrock_trajectory(w_history, iterations)
+println("The regular gradient descent is the least effective method for\n minimizing the Rosenbrock function among the methods implemented.")
+```
+#### Part b)
+```julia
+function backtracking_line_search_gd(
+    initial_w::Vector{Float64};
+    max_iterations::Integer = 500,
+    # Line Search Parameters
+    α::Float64 = 0.001, # Armijo constant (often very small)
+    β::Float64 = 0.5,   # Reduction factor (e.g., halving the step size)
+    η_initial::Float64 = 1.0 # Initial step size guess
+)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Performs Gradient Descent using Backtracking Line Search (BLS).
+    """
+    
+    w = copy(initial_w)
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    
+    J_current = rosenbrock_cost(w)
+    push!(weight_history, copy(w)) 
+    
+    for k in 1:max_iterations
+        grad_w = rosenbrock_gradient(w)
+        d_k = -grad_w # Descent direction
+        
+        # Check for convergence
+        if norm(grad_w) < 1e-6
+            break
+        end
+
+        # --- Line Search Core Logic ---
+        η = η_initial # Start with the initial guess
+        
+        # Calculate the directional derivative term (c1 term in Wolfe conditions)
+        # ∇J(w_k)ᵀ * d_k = - ||∇J(w_k)||²
+        grad_dot_d = dot(grad_w, d_k) 
+
+        # Loop until the Armijo condition is met
+        while rosenbrock_cost(w + η * d_k) > J_current + α * η * grad_dot_d
+            η *= β # Backtrack: Reduce the step size
+        end
+        # --- End Line Search ---
+
+        # Update rule: w(k+1) = w(k) + η * d_k
+        w += η * d_k
+        J_current = rosenbrock_cost(w)
+        
+        push!(weight_history, copy(w))
+        push!(cost_history, J_current)
+    end
+    
+    return weight_history, cost_history
+end
+
+initial_w = [-0.5, 1.0] 
+max_iterations = 500
+
+(w_history, j_history) = backtracking_line_search_gd(initial_w; max_iterations=max_iterations)
+
+plot_rosenbrock_trajectory(w_history, max_iterations)
+println("The backtracking line search significantly improves convergence speed\n compared to regular gradient descent for minimizing the Rosenbrock function.")
+```
+#### Part c)
+```julia
+function gradient_descent_momentum(
+    initial_w::Vector{Float64};
+    η::Float64 = 0.0005,  # Learning Rate
+    α::Float64 = 0.9,     # Momentum Parameter
+    max_iterations::Integer = 1000
+)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Performs Gradient Descent with Momentum on Rosenbrock's function.
+    """
+    
+    w = copy(initial_w)
+    v = zeros(Float64, length(w)) # Initialize velocity vector to zero
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    push!(weight_history, copy(w)) 
+    
+    for k in 1:max_iterations
+        grad_w = rosenbrock_gradient(w)
+        
+        # 1. Update velocity (v ← αv − η∇J(w))
+        v = α * v - η * grad_w
+        
+        # 2. Update weights (w ← w + v)
+        w += v
+        
+        push!(weight_history, copy(w))
+        push!(cost_history, rosenbrock_cost(w))
+        
+        # Simple convergence check (optional, but good practice)
+        if norm(grad_w) < 1e-6
+            println("Convergence achieved after $k steps.")
+            break
+        end
+    end
+    
+    return weight_history, cost_history
+end
+
+
+initial_w = [-0.5, 1.0]
+eta_val = 0.0005
+alpha_val = 0.9
+iterations = 1000
+
+(w_history_mom, j_history_mom) = gradient_descent_momentum(
+    initial_w; 
+    η=eta_val, 
+    α=alpha_val, 
+    max_iterations=iterations
+)
+
+plot_rosenbrock_trajectory(w_history_mom, iterations)
+println("Gradient descent with momentum outperforms both regular GD and BLS\n in minimizing the Rosenbrock function, achieving faster convergence.")
+```

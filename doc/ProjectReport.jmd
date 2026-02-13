@@ -1,0 +1,2420 @@
+## Problem 1
+```julia
+include("../src/Problem1.jl")
+```
+## Problem 2
+
+#### Part a)
+```julia
+using Plots
+using Random
+using LinearAlgebra
+using Statistics
+include("../src/Problem2.jl")
+include("../src/Problem1.jl")
+include("../src/Problem0.jl")
+```
+#### Part b)
+```julia
+
+function calculate_accuracy_percent(X::Matrix{Float64}, 𝐝::Vector{Float64}, 𝐰::Vector{Float64})::Float64
+    correct_predictions = 0
+    N = size(X, 1) # Get the number of rows (data points)
+    for n ∈ 1:N
+        # Pass the n-th row as a vector (X[n, :])
+        y = perceptron(X[n, :], 𝐰) 
+        if y == 𝐝[n]
+            correct_predictions += 1
+        end
+    end
+    return (correct_predictions / N) * 100.0
+end
+function run_average_perceptron_experiment()
+    N_data = 500         # Total data points
+    η = 0.1              # Learning rate
+    max_epochs = 50      # Total epochs to run
+    n_trials = 30        # Number of trials for averaging
+    d_values = [0.5, 0.0, -0.5]
+    r_param = 1.0
+    w_param = 0.6
+    
+    accuracy_sums = Dict{Float64, Vector{Float64}}()
+    
+    for d in d_values
+        accuracy_sums[d] = zeros(max_epochs)
+        
+        for trial ∈ 1:n_trials
+            # 1. Generate new data using your doublemoon function (Matrix format)
+            X_mat, D_raw = doublemoon(N_data, d=d, r=r_param, w=w_param)
+            
+            # 2. Prepare data for training
+            D = [d_val == 1.0 ? 1.0 : -1.0 for d_val in D_raw] # Correct labels
+            X_vec = matrix_to_vecvec(X_mat) # Convert to Vector{Vector{Float64}} for trainPerceptron
+            
+            # Initialize w: size is 2 features + 1 bias = 3
+            𝐰 = randn(3) 
+            
+            # 3. Run training epoch by epoch
+            for epoch ∈ 1:max_epochs
+                # Call the single-epoch function (only updates weights)
+                𝐰 = trainPerceptron(X_vec, D, η, 𝐰=𝐰, maxIter=1)
+                
+                # Calculate accuracy externally on the Matrix format (X_mat)
+                acc = calculate_accuracy_percent(X_mat, D, 𝐰)
+                accuracy_sums[d][epoch] += acc
+            end
+        end
+    end
+
+    # --- Averaging and Plotting ---
+    averaged_accuracies = Dict{Float64, Vector{Float64}}()
+    for d in d_values
+        averaged_accuracies[d] = accuracy_sums[d] ./ n_trials
+    end
+
+    p = plot(title="Avg. Perceptron Accuracy (30 Trials)\nDouble Moon: r=1, w=0.6, NOISELESS",
+            xlabel="Epoch",
+            ylabel="Average Training Accuracy (%)",
+            ylim=(80, 102),
+            legend=:right,
+            lw=4)
+
+    epoch_range = collect(1:max_epochs)    
+    plot!(p, epoch_range, averaged_accuracies[0.5], label="d = 0.5 (Linearly Separable)", color=:green, linewidth=3)
+    plot!(p, epoch_range, averaged_accuracies[0.0], label="d = 0.0 (Touching)", color=:blue, linewidth=3)
+    plot!(p, epoch_range, averaged_accuracies[-0.5], label="d = -0.5 (Non-linearly Separable)", color=:red, linewidth=3)
+    
+
+    display(p) 
+    return
+end
+run_average_perceptron_experiment()
+```
+#### Part c)
+```julia
+function plot_boundary(X::Matrix{Float64}, D::Vector{Float64}, 𝐰::Vector{Float64}, d::Float64)
+    N = size(X, 1)
+    
+    # 1. Classify all points and categorize
+    C1_correct_x, C1_correct_y = Float64[], Float64[] # Class 1 (+1.0) Correct: Blue
+    C2_correct_x, C2_correct_y = Float64[], Float64[] # Class 2 (-1.0) Correct: Green
+    Incorrect_x, Incorrect_y = Float64[], Float64[]   # Misclassified: Red
+    
+    for n in 1:N
+        x = X[n, :]
+        d_n = D[n]
+        y = perceptron(x, 𝐰)
+        
+        if y == d_n
+            # Correctly classified
+            if d_n == 1.0
+                push!(C1_correct_x, x[1]); push!(C1_correct_y, x[2])
+            else # d_n == -1.0
+                push!(C2_correct_x, x[1]); push!(C2_correct_y, x[2])
+            end
+        else
+            # Incorrectly classified
+            push!(Incorrect_x, x[1]); push!(Incorrect_y, x[2])
+        end
+    end
+    
+    accuracy = (length(C1_correct_x) + length(C2_correct_x)) / N * 100.0
+
+    # 2. Setup the Scatter Plot
+    p = plot(title="d = $d (Acc: $(round(accuracy, digits=1))%)", 
+            xlabel="Feature x₁", 
+            ylabel="Feature x₂",
+            legend=:bottomleft,
+            aspect_ratio=:equal,
+            markersize=3,
+            markeralpha=0.7,
+            xlim=(-1.5, 2.5),
+            ylim=(-2, 1.5))
+    # Plot data points
+    scatter!(p, C1_correct_x, C1_correct_y, color=:blue, label="C1 Correct")
+    scatter!(p, C2_correct_x, C2_correct_y, color=:green, marker=:square, label="C2 Correct")
+    scatter!(p, Incorrect_x, Incorrect_y, color=:red, marker=:cross, markersize=5, label="Incorrect")
+
+    # 3. Plot Decision Boundary (w₀ + w₁x₁ + w₂x₂ = 0)
+    w0, w1, w2 = 𝐰 # Bias, Feature 1 weight, Feature 2 weight
+
+    x_min, x_max = xlims(p)
+    
+    if abs(w2) > 1e-6 # Standard case: Solve for x₂
+        x_line = range(x_min, stop=x_max, length=100)
+        y_line = @. -(w0 + w1 * x_line) / w2
+        plot!(p, x_line, y_line, color=:black, linewidth=3, label="Decision Boundary")
+    else # Special case: Vertical line (w₂ ≈ 0)
+        x_vert = -w0 / w1
+        vline!(p, [x_vert], color=:black, linewidth=3, label="Decision Boundary")
+    end
+
+    return p
+end
+
+function run_boundary_visualization_experiment()
+    # Fixed parameters for visualization
+    N_data = 1000        
+    η = 0.1
+    max_epochs = 50      # Run for 50 epochs to ensure convergence/stability
+    d_values = [0.5, 0.0, -0.5] 
+    r_param = 1.0 
+    w_param = 0.6 
+    
+    # Storage for final plots
+    plots = Plots.Plot[]
+    
+    for d in d_values 
+        # 1. Generate a single dataset for visualization
+        X_mat, D = doublemoon(N_data, d=d, r=r_param, w=w_param) 
+        X_vec = [X_mat[i, :] for i in 1:size(X_mat, 1)] # Convert to Vector{Vector{Float64}}
+        
+        # 2. Train Perceptron to get final weights (w)
+        # Initialize w randomly (3 elements: bias, w1, w2)
+        𝐰 = randn(3)  
+        
+        # Run training for 50 epochs 
+        for epoch ∈ 1:max_epochs 
+            𝐰 = trainPerceptron(X_vec, D, η, 𝐰=𝐰, maxIter=1) 
+        end
+        
+        # 3. Generate the visualization plot using the final weights
+        p = plot_boundary(X_mat, D, 𝐰, d)
+        push!(plots, p)
+    end 
+    
+    # Combine all three plots into a single figure
+    combined_plot = plot(plots..., layout=(1, 3), size=(1200, 450), 
+                        plot_title="Perceptron Decision Boundaries (Final Weights after 50 Epochs)")
+    
+    display(combined_plot)
+    return 
+end
+run_boundary_visualization_experiment()
+```
+## Problem 3
+
+#### Part a)
+```julia
+include("../src/Problem0.jl")
+include("../src/Problem1.jl")
+include("../src/Problem3.jl")
+```
+#### Part b)
+```julia
+using LinearAlgebra
+using Random
+using Plots
+using Statistics
+
+function run_batch_perceptron_plot(d_param::Float64, max_epochs::Integer, η::Float64)
+    N_data = 500
+    r_param = 10.0 # Using values from your doublemoon definition
+    w_param = 6.0
+
+    # 1. Data Generation and Conversion
+    Random.seed!(42) # Ensure reproducible data
+    X_mat, D_raw = doublemoon(N_data, d=d_param, r=r_param, w=w_param)
+    # Convert labels: 1.0 -> 1.0, 2.0 -> -1.0
+    D = [d_val == 1.0 ? 1.0 : -1.0 for d_val in D_raw] 
+    X_vec = matrix_to_vecvec(X_mat)
+    
+    # 2. Training
+    Random.seed!(42) # Ensure reproducible weights
+    𝐰_initial = randn(3)
+    # trainBatchPerceptron now returns just the final weights (Vector{Float64})
+    𝐰_final, actual_epochs = trainBatchPerceptron(X_vec, D, η, 𝐰=𝐰_initial, maxIter=max_epochs)
+    # 3. Classification and Data Categorization for Plotting
+    blue_x, blue_y = Float64[], Float64[]    # Correctly Classified Class +1
+    green_x, green_y = Float64[], Float64[]  # Correctly Classified Class -1
+    red_x, red_y = Float64[], Float64[]      # Incorrectly Classified
+    
+    for n ∈ 1:N_data
+        x_n = X_mat[n, :]
+        d_n = D[n]
+        y_n = perceptron(x_n, 𝐰_final) 
+        
+        if isapprox(y_n, d_n, atol=1e-9) # Correctly Classified
+            if isapprox(d_n, 1.0, atol=1e-9)
+                push!(blue_x, x_n[1]); push!(blue_y, x_n[2])
+            else
+                push!(green_x, x_n[1]); push!(green_y, x_n[2])
+            end
+        else # Incorrectly Classified
+            push!(red_x, x_n[1]); push!(red_y, x_n[2])
+        end
+    end
+    
+    # 4. Generate the Decision Surface Line
+    w0, w1, w2 = 𝐰_final[1], 𝐰_final[2], 𝐰_final[3]
+    x_min, x_max = minimum(X_mat[:, 1]), maximum(X_mat[:, 1])
+    x_plot = range(x_min - 1.0, x_max + 1.0, length=100)
+    
+    y_plot = nothing
+    if abs(w2) > 1e-9
+        y_line(x) = -(w0 + w1 * x) / w2
+        y_plot = y_line.(x_plot)
+    end
+    
+    # 5. Plotting
+    p = plot(title="Batch Perceptron Classification (d=$d_param, η=$η,\nEpochs=$max_epochs)",
+             xlabel="x₁", ylabel="x₂", legend=:topleft, aspect_ratio=:equal)
+    
+    scatter!(p, blue_x, blue_y, color=:blue, label="Class +1 Correct", markersize=4, markerstrokewidth=0)
+    scatter!(p, green_x, green_y, color=:green, label="Class -1 Correct", markersize=4, markerstrokewidth=0)
+    scatter!(p, red_x, red_y, color=:red, label="Misclassified", markersize=4, markerstrokewidth=0)
+
+    if y_plot !== nothing
+        plot!(p, x_plot, y_plot, linecolor=:black, linewidth=2, label="Decision Surface")
+    else
+        vline!(p, [-w0 / w1], linecolor=:black, linewidth=2, label="Decision Surface")
+    end
+    
+    return p
+end
+
+# --- Execution ---
+p_final = run_batch_perceptron_plot(0.0, 100, 0.01)
+display(p_final)
+```
+#### Part c)
+```julia
+function calculate_accuracy_percent(X_vec::Vector{Vector{Float64}}, 𝐝::Vector{Float64}, 𝐰::Vector{Float64})::Float64
+    correct_predictions = 0
+    N = length(X_vec)
+    for n ∈ 1:N
+        y = perceptron(X_vec[n], 𝐰)
+        if y == 𝐝[n]
+            correct_predictions += 1
+        end
+    end
+    return (correct_predictions / N) * 100.0
+end
+# --- Single-Epoch Batch Training Function ---
+
+function trainBatchPerceptron_Epoch(X_vec::Vector{Vector{Float64}}, 𝐝::Vector{Float64}, η::Float64, 𝐰::Vector{Float64})
+    """Performs the accumulation and single batch update for one epoch."""
+    
+    Δ𝐰_batch = zeros(length(𝐰))
+    N = length(X_vec)
+
+    # Accumulate error over the entire batch
+    for n in 1:N
+        x_n = X_vec[n]
+        d_n = 𝐝[n]
+        
+        # Compute the weighted sum and activation output
+        x_aug = [1.0; x_n]
+        nu = dot(𝐰, x_aug)
+        y = sign(nu) # Using Julia's standard sign function (or your perceptron logic)
+        
+        e = d_n - y
+        
+        # Accumulate the correction term
+        if abs(e) > 1e-12 
+            Δ𝐰_batch .+= e * x_aug 
+        end
+    end
+    
+    # APPLY THE BATCH UPDATE: w <- w + η * Δ𝐰_batch
+    𝐰 .+= η * Δ𝐰_batch
+    
+    return 𝐰
+end
+function run_50_trial_batch_average(N_data::Integer, r_param::Float64, w_param::Float64, 
+                                    d_param::Float64, max_epochs::Integer, 
+                                    η::Float64, n_trials::Integer)
+
+    # 1. Generate the SINGLE DATASET (Reused across all 50 trials)
+    X_mat, D_raw = doublemoon(N_data, d=d_param, r=r_param, w=w_param)
+    D = [d_val == 1.0 ? 1.0 : -1.0 for d_val in D_raw] # Correct labels
+    X_vec = matrix_to_vecvec(X_mat) # Convert for the epoch function
+
+    # Array to sum accuracies over all trials
+    accuracy_sums = zeros(max_epochs)
+
+    # 2. Run 50 trials
+    for trial in 1:n_trials
+        # Initialize weights randomly for each new trial
+        𝐰 = randn(3) 
+        
+        # Train for max_epochs
+        for epoch in 1:max_epochs
+            # Perform one batch training epoch (updates w)
+            𝐰 = trainBatchPerceptron_Epoch(X_vec, D, η, 𝐰)
+            
+            # Calculate accuracy with the updated weights
+            acc = calculate_accuracy_percent(X_vec, D, 𝐰)
+            
+            # Accumulate the trial results
+            accuracy_sums[epoch] += acc
+        end
+    end
+
+    # 3. Compute the average accuracy
+    avg_accuracies = accuracy_sums ./ n_trials
+    epoch_range = collect(1:max_epochs)
+
+    # 4. Plotting
+    p = plot(epoch_range, avg_accuracies, label="d = $d_param (Avg. over 50 Trials)", 
+            color=:purple, linewidth=3)
+
+    plot!(p, title="Avg. Batch Perceptron Accuracy (50 Trials, d=$d_param)",
+            xlabel="Epoch",
+            ylabel="Average Training Accuracy (%)",
+            ylim=(40, 100),
+            legend=:bottomright)
+    hline!([50], label="Random Guessing (50%)", linestyle=:dot, color=:gray)
+    
+    # Save the plot
+    display(p)
+    return
+end
+
+# Execute the experiment function
+run_50_trial_batch_average(500, 1.0, 0.6, 0.5, 100, 0.01, 50)
+println("\nAverage accuracy quickly reaches near 100% after
+only a few epochs. This is expected since the data is linearly separable")
+```
+#### Part d)
+```julia
+run_50_trial_batch_average(500, 1.0, 0.6, 0.0, 100, 0.01, 50)
+println("\nAverage accuracy approaches 100% but at a slower rate compared to d=0.5.
+This is because the classes are just touching, making classification more challenging.")
+```
+#### Part e)
+```julia
+run_50_trial_batch_average(500, 1.0, 0.6, -0.5, 100, 0.01, 50)
+println("\nAverage accuracy plateaus around 75-80% due to the non-linearly separable nature
+of the data. The perceptron cannot perfectly classify all points in this scenario.")
+```
+#### Part f)
+```julia
+function run_perceptron_gauss_xor_plot(N_data::Integer, σ²::Float64, η::Float64, max_epochs::Integer)
+    # Set seed for reproducibility for both data and initial weights
+    Random.seed!(123) 
+
+    # 1. Data Generation
+    X_vec, D = GaussX(N_data, σ²=σ²)
+    X_mat_for_plotting = hcat(X_vec...)' # Convert to Matrix for plotting range
+
+    # 2. Training
+    # Destructure the two return values from trainBatchPerceptron
+    𝐰_final, actual_epochs = trainBatchPerceptron(X_vec, D, η, maxIter=max_epochs)
+    println("Training converged in $actual_epochs epochs or reached max epochs.")
+
+    # 3. Classification and Data Categorization for Plotting
+    class1_correct_x, class1_correct_y = Float64[], Float64[]    # Target +1
+    class2_correct_x, class2_correct_y = Float64[], Float64[]    # Target -1
+    misclassified_x, misclassified_y = Float64[], Float64[]     # Errors
+    
+    for n ∈ 1:N_data
+        x_n = X_vec[n] # Get the current data point (Vector{Float64})
+        d_n = D[n]     # Get the desired output
+        
+        # Call perceptron with correct types: perceptron(::Vector{Float64}, ::Vector{Float64})
+        y_n = perceptron(x_n, 𝐰_final) 
+        
+        if isapprox(y_n, d_n, atol=1e-9) # Correctly Classified
+            if isapprox(d_n, 1.0, atol=1e-9)
+                push!(class1_correct_x, x_n[1]); push!(class1_correct_y, x_n[2])
+            else # d_n is -1.0
+                push!(class2_correct_x, x_n[1]); push!(class2_correct_y, x_n[2])
+            end
+        else # Incorrectly Classified
+            push!(misclassified_x, x_n[1]); push!(misclassified_y, x_n[2])
+        end
+    end
+
+    # 4. Decision Surface
+    w0, w1, w2 = 𝐰_final[1], 𝐰_final[2], 𝐰_final[3]
+    
+    x_min, x_max = minimum(X_mat_for_plotting[:, 1]), maximum(X_mat_for_plotting[:, 1])
+    # Extend plot range slightly beyond data limits
+    x_plot = range(x_min - 0.5, x_max + 0.5, length=100)
+    
+    # Solve for y: y = -(w_0 + w_1*x) / w_2
+    y_plot_line = nothing
+    if abs(w2) > 1e-9 
+        y_line_func(x) = -(w0 + w1 * x) / w2
+        y_plot_line = y_line_func.(x_plot)
+    end
+    
+    # 5. Plotting
+    p = plot(title="Batch Perceptron on Gaussian XOR (σ²=$σ²)",
+             xlabel="x₁", ylabel="x₂", legend=:topright, aspect_ratio=:equal, xlims=(-3,3), ylims=(-3,3))
+    
+    scatter!(p, class1_correct_x, class1_correct_y, color=:blue, label="Class +1 Correct", markersize=4, markerstrokewidth=0)
+    scatter!(p, class2_correct_x, class2_correct_y, color=:green, label="Class -1 Correct", markersize=4, markerstrokewidth=0)
+    scatter!(p, misclassified_x, misclassified_y, color=:red, label="Misclassified", markersize=6, marker=:x, markerstrokewidth=1.5)
+
+    if y_plot_line !== nothing
+        plot!(p, x_plot, y_plot_line, linecolor=:black, linewidth=2, label="Decision Surface")
+    else
+        vline!(p, [-w0 / w1], linecolor=:black, linewidth=2, label="Decision Surface")
+    end
+    
+    display(p)
+    return 𝐰_final
+end
+
+# --- Script Execution for Gaussian XOR ---
+run_perceptron_gauss_xor_plot(500, 1.0, 0.01, 100)
+println("\nThe perceptron struggles with the Gaussian XOR data. this is expected since the data is not linearly separable.
+The decision boundary is unable to perfectly classify all points, leading to misclassifications.")
+```
+#### Part g)
+```julia
+function run_50_trial_gauss_average(N_data::Integer, σ²::Float64, max_epochs::Integer, η::Float64, n_trials::Integer)
+
+    # 1. Generate the SINGLE DATASET (Reused across all 50 trials)
+    # Fix a seed for data generation to ensure the same dataset is used every time.
+    Random.seed!(42) 
+    X_vec, D = GaussX(N_data, σ²=σ²)
+    # Convert X_vec to Matrix
+    X_mat_raw = hcat(X_vec...)'
+    # Augment X_mat with a column of ones for the bias term
+    N_data = size(X_mat_raw, 1)
+    X_mat = hcat(ones(N_data), X_mat_raw)
+
+    # Array to sum accuracies over all trials (size = max_epochs)
+    accuracy_sums = zeros(max_epochs)
+
+    # 2. Run 50 trials
+    for trial in 1:n_trials
+        # Randomly initialize weights for each new trial. 
+        # We need a different seed *for the weights* each time.
+        Random.seed!(trial + 1000) 
+        𝐰 = randn(size(X_mat, 2)) 
+        
+        # Train for max_epochs
+        for epoch in 1:max_epochs
+            # Perform one batch training epoch (updates w)
+            𝐰 = trainBatchPerceptron_Epoch(X_vec, D, η, 𝐰)
+            
+            # Calculate accuracy with the updated weights
+            acc = calculate_accuracy_percent(X_vec, D, 𝐰)
+            
+            # Accumulate the trial results
+            accuracy_sums[epoch] += acc
+        end
+    end
+
+    # 3. Compute the average accuracy
+    avg_accuracies = accuracy_sums ./ n_trials
+    epoch_range = collect(1:max_epochs)
+
+    # 4. Plotting
+    p = plot(epoch_range, avg_accuracies, label="Avg. Accuracy (N=$n_trials Trials)", 
+             color=:red, linewidth=2)
+
+    plot!(p, title="Avg. Batch Perceptron Accuracy on Gaussian XOR (σ²=$σ²)",
+              xlabel="Epoch",
+              ylabel="Average Training Accuracy (%)",
+              ylim=(45, 55),
+              legend=:bottomright)
+    hline!([50], label="Random Guessing (50%)", linestyle=:dot, color=:black, linewidth=3)
+    
+    display(p)
+    return avg_accuracies
+end
+
+# Execute the experiment function
+run_50_trial_gauss_average(1000, 2.0, 500, 0.01, 50)
+println("\nThe average accuracy hovers around 50%, indicating that the perceptron is essentially guessing.")
+```
+## Problem 4
+
+#### Part a)
+```julia
+using LinearAlgebra
+using Random
+
+# --- 1. Hypothesis Function ---
+
+function linear_hypothesis(X::Matrix{Float64}, 𝐰::Vector{Float64})::Vector{Float64}
+    """
+    Computes the linear hypothesis h(x) = X * 𝐰.
+    """
+    return X * 𝐰
+end
+
+# --- 2. Cost Function (Mean Squared Error) ---
+
+function cost_function(X::Matrix{Float64}, y::Vector{Float64}, 𝐰::Vector{Float64})::Float64
+    """
+    Computes the Mean Squared Error (MSE) cost, J(𝐰).
+    """
+    m = size(X, 1) # Number of training examples
+    predictions = linear_hypothesis(X, 𝐰)
+    errors = predictions - y
+    
+    # Cost J(𝐰) = 1/(2m) * sum(errors.^2)
+    return sum(errors.^2) / (2 * m)
+end
+
+# --- 3. Gradient Function ---
+
+function gradient(X::Matrix{Float64}, y::Vector{Float64}, 𝐰::Vector{Float64})::Vector{Float64}
+    """
+    Computes the gradient of the MSE cost function J(𝐰).
+    """
+    m = size(X, 1) # Number of training examples
+    predictions = linear_hypothesis(X, 𝐰)
+    errors = predictions - y
+    
+    # Calculate the gradient: (1/m) * X' * errors
+    grad = (X' * errors) / m
+    
+    return grad
+end
+
+# --- 4. Batch Gradient Descent Algorithm (Modified to track weights and accept start w) ---
+
+function gradient_descent(X::Matrix{Float64}, y::Vector{Float64};
+                          η::Float64 = 0.01,
+                          initial_𝐰::Vector{Float64},
+                          max_iterations::Integer = 1000)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Performs Batch Gradient Descent, tracking all weight vectors.
+        
+    Returns:
+        A tuple containing: (weight_history, cost_history)
+    """
+    
+    𝐰 = copy(initial_𝐰) # Start with the specified initial weights
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    
+    # Record initial weights (Step 0)
+    push!(weight_history, copy(𝐰)) 
+    
+    for i in 1:max_iterations
+        # 1. Compute the gradient 
+        grad_w = gradient(X, y, 𝐰)
+        
+        # 2. Batch Update Rule
+        # 𝐰_k+1 = 𝐰_k - η * ∇J(𝐰_k)
+        𝐰 -= η * grad_w
+        
+        # 3. Record weights after update (Step i)
+        push!(weight_history, copy(𝐰))
+        
+        # 4. Calculate and record the current cost
+        current_cost = cost_function(X, y, 𝐰)
+        push!(cost_history, current_cost)
+        
+        # Note: Tolerance check is removed as per the problem constraint of 50 max iterations.
+    end
+    
+    return weight_history, cost_history
+end
+
+# --- 5. Analysis Function for Optimal Learning Rate ---
+
+function run_eta_comparison_and_plot_part_a()
+    
+    # 5.1. Data Generation
+    Random.seed!(42) 
+    x_data = collect(1.0:0.5:10.0)
+    y_true = 5.0 .+ 3.0 .* x_data + randn(length(x_data)) .* 1.5 
+    X_aug = hcat(ones(length(x_data)), x_data) 
+
+    # 5.2. Calculate Optimal Weights (w*)
+    𝐰_star = (X_aug' * X_aug) \ (X_aug' * y_true)
+    println("Optimal Weights (w⋆): $(round.(𝐰_star, digits=4))")
+    
+    # 5.3. Experiment Setup
+    initial_𝐰 = [-5.0, 5.0] # Fixed starting point 
+    max_iters = 50          
+    η_values = [0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2]
+    unique_colors = [:blue, :cyan, :green, :red, :magenta, :orange, :purple]
+    
+    p = plot(title="Weight Error vs. Iteration for Varying eta",
+             xlabel="Iteration (k)",
+             ylabel="Weight Error E(w) (log scale)",
+             yscale=:log10,
+             xlims=(0, max_iters),
+             ylims=(1, 500), 
+             legend=:topright,
+             grid=true)
+             
+    best_eta = 0.0
+    min_final_error = Inf
+    
+    for (idx, η) in enumerate(η_values) # Use enumerate for unique colors
+        weight_history, _ = gradient_descent(X_aug, y_true; 
+                                             η=η, 
+                                             initial_𝐰=initial_𝐰, 
+                                             max_iterations=max_iters)
+        
+        error_history = Float64[]
+        for i in 1:length(weight_history)
+             𝐰_k_vec = weight_history[i] 
+             error = norm(𝐰_k_vec - 𝐰_star)
+             push!(error_history, error)
+        end
+        
+        if length(error_history) > 0 && error_history[end] < min_final_error
+            min_final_error = error_history[end]
+            best_eta = η
+        end
+
+        # Unique color logic
+        color = unique_colors[idx]
+        linewidth = 1
+        label = "eta=$(η)"
+
+        if η == 0.02 
+            linewidth = 1
+            label = "eta=$(η) (Part a Optimal)"
+        end
+        
+        plot!(p, 0:length(error_history)-1, error_history, 
+              color=color, linestyle=:solid, linewidth=linewidth, label=label)
+    end
+
+    println("\nConclusion for Part a): The fastest converging learning rate is eta = $best_eta.")
+    
+    return p
+end
+
+# Execute the analysis
+run_eta_comparison_and_plot_part_a()
+
+```
+#### Part b)
+```julia
+function run_part_b_analysis()
+    
+    # Use the same data as Part a
+    Random.seed!(42) 
+    x_data = collect(1.0:0.5:10.0)
+    y_true = 5.0 .+ 3.0 .* x_data + randn(length(x_data)) .* 1.5 
+    X_aug = hcat(ones(length(x_data)), x_data) 
+    𝐰_star = (X_aug' * X_aug) \ (X_aug' * y_true)
+    
+    # Parameters for stability test
+    max_iters = 50
+    num_trials = 30
+    
+    η_chosen = 0.02     # From Part a
+    η_stable = 0.005    # Stable baseline
+    η_revised = 0.01    # Revised optimal choice (stable and fast)
+    
+    η_values = [η_chosen, η_stable, η_revised]
+    sum_errors = Dict{Float64, Vector{Float64}}()
+    for η in η_values
+        # Initialize with zeros for max_iters + 1 steps (0 to 50)
+        sum_errors[η] = zeros(max_iters + 1)
+    end
+    
+    Random.seed!(123) # Set a new seed for random initial weights 
+
+    println("\n--- Part b) Stability Analysis ---\n")
+    println("Running stability test (30 trials) for: η=$η_chosen, η=$η_stable, and η=$η_revised...")
+    
+    for trial in 1:num_trials
+        # Generate new random initial weight vector (μ=0, σ=10)
+        initial_𝐰 = randn(2) * 10.0
+        
+        for η in η_values
+            # Run GD
+            weight_history, _ = gradient_descent(X_aug, y_true; 
+                                                η=η, 
+                                                initial_𝐰=initial_𝐰, 
+                                                max_iterations=max_iters)
+            
+            # Calculate E(w) = ||w - w⋆|| and accumulate
+            for i in 1:length(weight_history)
+                # Safety check against index bounds (should be fine if GD doesn't diverge)
+                if i <= max_iters + 1
+                    𝐰_k_vec = weight_history[i] 
+                    error = norm(𝐰_k_vec - 𝐰_star)
+                    sum_errors[η][i] += error
+                end
+            end
+        end
+    end
+    
+    # Calculate Average Error Histories
+    avg_errors = Dict{Float64, Vector{Float64}}()
+    for η in η_values
+        avg_errors[η] = sum_errors[η] / num_trials
+    end
+    
+    # Plotting the results
+    p = plot(title="Stability Analysis:\nAverage Weight Error E(w) (30 Trials)}",
+            xlabel="Iteration (k)",
+            ylabel="Average E(w) (log scale)",
+            yscale=:log10,
+            xlims=(0, max_iters),
+            ylims=(5, 50),
+            legend=:topright,
+            grid=true)
+            
+    # Plot the results
+    plot!(p, 0:max_iters, avg_errors[η_stable], 
+        label="η = 0.005 (Stable Baseline)", color=:blue, linestyle=:dash, linewidth=2)
+        
+    plot!(p, 0:max_iters, avg_errors[η_chosen], 
+        label="η = 0.02 (Part a Choice - Unstable)", color=:red, linestyle=:solid, linewidth=2)
+
+    plot!(p, 0:max_iters, avg_errors[η_revised], 
+        label="η = 0.01 (Revised Optimal)", color=:green, linestyle=:solid, linewidth=4)
+    
+    display(p)
+    return p
+end
+
+p_b = run_part_b_analysis()
+```
+#### Part c)
+```julia
+function run_part_c_analysis()
+    
+    # Data Generation (same as Part a)
+    Random.seed!(42) 
+    x_data = collect(1.0:0.5:10.0)
+    y_true = 5.0 .+ 3.0 .* x_data + randn(length(x_data)) .* 1.5 
+    X_aug = hcat(ones(length(x_data)), x_data) 
+
+    # Experiment Setup (same as Part a)
+    initial_𝐰 = [-5.0, 5.0] # Fixed starting point 
+    max_iters = 50          
+    η_values = [0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2]
+    unique_colors = [:blue, :cyan, :green, :red, :magenta, :orange, :purple]
+    
+    println("\n--- Part c) Cost J(w) vs. Iteration ---\n")
+    println("Comparing cost convergence for different learning rates...")
+
+    # Initialize plot for Part c
+    p = plot(title="Cost J(w) vs. Iteration for Varying eta ",
+             xlabel="Iteration (k)",
+             ylabel="Cost J(w) (log scale)",
+             yscale=:log10, 
+             xlims=(1, max_iters), 
+             ylims=(1, 5000), 
+             legend=:topright,
+             grid=true)
+             
+    # Run GD and Plot for each learning rate
+    for (idx, η) in enumerate(η_values) # Use enumerate for unique colors
+        # Run GD
+        _, cost_history = gradient_descent(X_aug, y_true; 
+                                           η=η, 
+                                           initial_𝐰=initial_𝐰, 
+                                           max_iterations=max_iters)
+        
+        # Unique color logic
+        color = unique_colors[idx]
+        linewidth = 1
+        label = "eta=$(η)"
+
+        # Apply emphasis to key values
+        if η == 0.01 
+             linewidth = 1
+             label = "eta=$(η) (Revised Optimal)"
+        elseif η == 0.02 
+            linewidth = 1
+            label = "eta=$(η) (Part a Optimal)"
+        end
+        
+        # Plot k=1 to k=max_iters against cost history
+        plot!(p, 1:length(cost_history), cost_history, 
+              color=color, linestyle=:solid, linewidth=linewidth, label=label)
+    end
+    
+    println("Observation: The cost plot reveals the same ranking as the weight error plot.")
+    
+    return p
+end
+
+p_c = run_part_c_analysis()
+display(p_c)
+println("The gradient descent on the quadratic cost function eventually
+converges to the optimal weights w⋆, but was unable to reach it within 50 iterations.")
+```
+#### Part d)
+```julia
+
+function hessian(X::Matrix{Float64})::Matrix{Float64}
+    """Computes the Hessian matrix H of the MSE cost function (H = (XᵀX)/m)."""
+    m = size(X, 1)
+    return (X' * X) / m
+end
+function line_search_gd(X::Matrix{Float64}, y::Vector{Float64};
+                        initial_𝐰::Vector{Float64},
+                        max_iterations::Integer = 1000)::Vector{Vector{Float64}}
+    """Performs Gradient Descent using Exact Line Search (ELS)."""
+    
+    𝐰 = copy(initial_𝐰)
+    weight_history = Vector{Float64}[]
+    push!(weight_history, copy(𝐰)) 
+    
+    H = hessian(X)
+    
+    for i in 1:max_iterations
+        grad_w = gradient(X, y, 𝐰)
+        
+        if norm(grad_w) < 1e-6 # Check for convergence
+            break
+        end
+
+        # Descent direction (negative gradient)
+        d_k = -grad_w
+        
+        # Exact Line Search step size (eta*) for quadratic cost
+        # η* = (d_kᵀ * d_k) / (d_kᵀ * H * d_k)
+        eta_star = dot(d_k, d_k) / dot(d_k, H * d_k)
+
+        # Update weights
+        𝐰 += eta_star * d_k
+        push!(weight_history, copy(𝐰))
+    end
+    
+    return weight_history
+end
+
+
+function run_part_d_analysis()
+    
+    Random.seed!(42) 
+    x_data = collect(1.0:0.5:10.0)
+    y_true = 5.0 .+ 3.0 .* x_data + randn(length(x_data)) .* 1.5 
+    X_aug = hcat(ones(length(x_data)), x_data) 
+    𝐰_star = (X_aug' * X_aug) \ (X_aug' * y_true)
+    
+    initial_𝐰_d = [-5.0, 5.0]
+    
+    weight_history_ls = line_search_gd(X_aug, y_true; 
+                                       initial_𝐰=initial_𝐰_d, 
+                                       max_iterations=5)
+    
+    println("\n--- Part d) Gradient Descent with Line Search Trajectory (First 5 Iterations) ---\n")
+    println("Optimal Weights (w⋆): $(round.(𝐰_star, digits=4))")
+    println("Initial Weights: w₀ = $(round.(initial_𝐰_d, digits=4))")
+    
+    # Print results for the first 5 steps (w0 to w5)
+    H = hessian(X_aug)
+    for i in 1:min(6, length(weight_history_ls))
+        𝐰_k = weight_history_ls[i]
+        cost = cost_function(X_aug, y_true, 𝐰_k)
+        
+        if i > 1
+             grad_w_prev = gradient(X_aug, y_true, weight_history_ls[i-1])
+             d_k = -grad_w_prev
+             eta_star = dot(d_k, d_k) / dot(d_k, H * d_k)
+             println("   (Step size η* used to reach this point: $(round(eta_star, digits=6)))")
+        end
+        
+        println("Iteration $(i-1): w$(i-1) = [$(round(𝐰_k[1], digits=4)), $(round(𝐰_k[2], digits=4))]ᵀ, J(w$(i-1)) = $(round(cost, digits=6))")
+    end
+    
+    return weight_history_ls, 𝐰_star
+end
+(weight_history_ls, w_star) = run_part_d_analysis()
+
+function run_trajectory_comparison_plot()
+    """
+    Runs both fixed-rate GD and Line Search GD and plots their trajectories 
+    on the cost function's contour lines for comparison.
+    """
+    
+    Random.seed!(42) 
+    x_data = collect(1.0:0.5:10.0)
+    y_true = 5.0 .+ 3.0 .* x_data + randn(length(x_data)) .* 1.5 
+    X_aug = hcat(ones(length(x_data)), x_data) 
+    𝐰_star = (X_aug' * X_aug) \ (X_aug' * y_true)
+    
+    initial_𝐰 = [-5.0, 5.0]
+    
+    # 1. Run Fixed-Rate GD (eta=0.01) - 50 iterations
+    # We use η=0.01 as the revised optimal rate from Part b.
+    weight_history_fixed, _ = gradient_descent(X_aug, y_true; 
+                                               η=0.01, 
+                                               initial_𝐰=initial_𝐰, 
+                                               max_iterations=50)
+    
+    # 2. Run Line Search GD - 5 iterations (sufficient for convergence)
+    weight_history_ls = line_search_gd(X_aug, y_true; 
+                                       initial_𝐰=initial_𝐰, 
+                                       max_iterations=5)
+    
+    # --- 3. Contour Setup ---
+    # Define weight ranges for the contour plot grid
+    w0_range = range(-6.0, stop=6.0, length=100)
+    w1_range = range(2.0, stop=5.0, length=100)
+    
+    # Wrapper function for cost calculation on a grid
+    function J_wrapper(w0, w1)
+        return cost_function(X_aug, y_true, [w0, w1])
+    end
+    
+    # Generate the contour plot (Cost Surface Level Sets)
+    p = contour(w0_range, w1_range, J_wrapper, 
+                fill=true, 
+                levels=20, # Number of contour lines
+                cbar=false, 
+                title="GD Trajectory Comparison (Contour Plot)",
+                xlabel="Bias (w₀)", 
+                ylabel="Slope (w₁)",
+                legend=:topright,
+                xlims=(minimum(w0_range), maximum(w0_range)),
+                ylims=(minimum(w1_range), maximum(w1_range)))
+                
+
+    # 4. Plot Line Search GD Trajectory (w₀ to w₅)    
+    w0_ls = [w[1] for w in weight_history_ls]
+    w1_ls = [w[2] for w in weight_history_ls]
+    
+    plot!(p, w0_ls, w1_ls, 
+          label="Exact Line Search Path", 
+          color=:red, 
+          linewidth=3, 
+          marker=:diamond, 
+          markersize=5, 
+          markercolor=:red)
+          
+    # 5. Plot Fixed-Rate GD Trajectory (w₀ to w₅₀)
+    w0_fixed = [w[1] for w in weight_history_fixed]
+    w1_fixed = [w[2] for w in weight_history_fixed]
+    
+    plot!(p, w0_fixed, w1_fixed, 
+          label="Fixed η=0.01 Path", 
+          color=:blue, 
+          linewidth=2, 
+          marker=:circle, 
+          markersize=3, 
+          markercolor=:blue)
+          
+
+    # 6. Plot the Optimal Solution w*
+    scatter!(p, [𝐰_star[1]], [𝐰_star[2]], 
+             label="Optimal w⋆", 
+             marker=:star, 
+             markersize=10, 
+             markercolor=:yellow, 
+             markerstrokecolor=:black)
+             
+    # Annotate initial point w0
+    annotate!(p, initial_𝐰[1] - 0.5, initial_𝐰[2], 
+              text("w₀", 10, :black, :left))
+
+    # Annotate final point for Line Search (w5)
+    annotate!(p, w0_ls[end] + 0.1, w1_ls[end], 
+              text("w₅", 10, :red, :right))
+
+    # Annotate final point for Fixed GD (w50)
+    annotate!(p, w0_fixed[end] + 0.1, w1_fixed[end], 
+              text("w₅₀", 10, :blue, :left))
+              
+    return p
+end
+run_trajectory_comparison_plot()
+```
+## Problem 5
+
+#### Part a)
+```julia
+using LinearAlgebra
+using Plots # Required for plotting the trajectory
+
+## Gradient Descent for Rosenbrock's Cost Function
+
+# --- 1. Rosenbrock Cost Function ---
+
+function rosenbrock_cost(w::Vector{Float64})::Float64
+    """
+    J(w) = (1 - w1)^2 + 100(w2 - w1^2)^2, where w = [w1, w2]
+    Minimal value J(w*) = 0 at w* = [1, 1]
+    """
+    w1, w2 = w[1], w[2]
+    return (1.0 - w1)^2 + 100.0 * (w2 - w1^2)^2
+end
+
+# --- 2. Rosenbrock Gradient Function ---
+
+function rosenbrock_gradient(w::Vector{Float64})::Vector{Float64}
+    """Gradient of the Rosenbrock function, ∇J(w)."""
+    w1, w2 = w[1], w[2]
+    
+    # dJ/dw1 = -2(1 - w1) - 400*w1*(w2 - w1^2)
+    dw1 = -2.0 * (1.0 - w1) - 400.0 * w1 * (w2 - w1^2)
+    
+    # dJ/dw2 = 200 * (w2 - w1^2)
+    dw2 = 200.0 * (w2 - w1^2)
+    
+    return [dw1, dw2]
+end
+
+# --- 3. Batch Gradient Descent Algorithm ---
+
+function gradient_descent_rosenbrock(
+    initial_w::Vector{Float64};
+    η::Float64 = 0.001,
+    max_iterations::Integer = 500
+)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Performs Batch Gradient Descent on Rosenbrock's function.
+    """
+    
+    w = copy(initial_w)
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    push!(weight_history, copy(w)) 
+    
+    for k in 1:max_iterations
+        grad_w = rosenbrock_gradient(w)
+        
+        # Update rule
+        w -= η * grad_w
+        
+        push!(weight_history, copy(w))
+        push!(cost_history, rosenbrock_cost(w))
+    end
+    
+    return weight_history, cost_history
+end
+
+# --- 4. Plotting Function (Requires 'Plots' package) ---
+
+function plot_rosenbrock_trajectory(w_history::Vector{Vector{Float64}}, iterations::Integer)
+    """
+    Plots the contour of the Rosenbrock function and the GD trajectory.
+    Note: The 'iterations' argument here refers to the max iterations set, 
+    but the title uses the actual number of steps taken (length(w_history)-1).
+    """
+    
+    w_star = [1.0, 1.0]
+    
+    # Define ranges for the contour plot grid
+    w1_range = range(-0.6, stop=1.2, length=100)
+    w2_range = range(-0.2, stop=1.2, length=100)
+    
+    # Calculate the cost surface for the contour
+    J_surface = [rosenbrock_cost([w1, w2]) for w2 in w2_range, w1 in w1_range]
+
+    # Create the contour plot
+    p = contour(w1_range, w2_range, J_surface, 
+                fill=true, 
+                levels=vcat([0.1, 0.5, 1.0], range(2.0, 10.0, length=10), range(15.0, 100.0, length=5)), 
+                cbar=false, 
+                title="Gradient Descent Line Search (Steps: $(length(w_history)-1))",
+                xlabel="w₁", 
+                ylabel="w₂",
+                legend=:bottomleft,
+                colormap=:magma)
+
+    # Convert history into plottable vectors
+    w1_path = [w[1] for w in w_history]
+    w2_path = [w[2] for w in w_history]
+    
+    # Plot the GD path
+    plot!(p, w1_path, w2_path, 
+          label="BLS Path", 
+          color=:gold, 
+          linewidth=2, 
+          markershape=:circle, 
+          markersize=3, 
+          markercolor=:white,
+          alpha=0.9)
+
+    # Plot the Optimal Solution w*
+    scatter!(p, [w_star[1]], [w_star[2]], 
+             label="Optimal w*", 
+             marker=:star, 
+             markersize=10, 
+             markercolor=:red, 
+             markerstrokecolor=:black)
+             
+    # Plot Start and End Points
+    scatter!(p, [w1_path[1]], [w2_path[1]], 
+             label="Start (w₀)", 
+             markersize=7, 
+             markershape=:diamond,
+             markercolor=:green)
+
+    scatter!(p, [w1_path[end]], [w2_path[end]], 
+             label="End (w_final)", 
+             markersize=7, 
+             markershape=:square,
+             markercolor=:yellow)
+
+    display(p)
+end
+
+
+# --- Execution Example ---
+initial_w = [-0.5, 0.5]
+η_test = 0.001
+iterations = 500
+
+(w_history, j_history) = gradient_descent_rosenbrock(initial_w; η=η_test, max_iterations=iterations)
+
+plot_rosenbrock_trajectory(w_history, iterations)
+println("The regular gradient descent is the least effective method for\n minimizing the Rosenbrock function among the methods implemented.")
+```
+#### Part b)
+```julia
+function backtracking_line_search_gd(
+    initial_w::Vector{Float64};
+    max_iterations::Integer = 500,
+    # Line Search Parameters
+    α::Float64 = 0.001, # Armijo constant (often very small)
+    β::Float64 = 0.5,   # Reduction factor (e.g., halving the step size)
+    η_initial::Float64 = 1.0 # Initial step size guess
+)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Performs Gradient Descent using Backtracking Line Search (BLS).
+    """
+    
+    w = copy(initial_w)
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    
+    J_current = rosenbrock_cost(w)
+    push!(weight_history, copy(w)) 
+    
+    for k in 1:max_iterations
+        grad_w = rosenbrock_gradient(w)
+        d_k = -grad_w # Descent direction
+        
+        # Check for convergence
+        if norm(grad_w) < 1e-6
+            break
+        end
+
+        # --- Line Search Core Logic ---
+        η = η_initial # Start with the initial guess
+        
+        # Calculate the directional derivative term (c1 term in Wolfe conditions)
+        # ∇J(w_k)ᵀ * d_k = - ||∇J(w_k)||²
+        grad_dot_d = dot(grad_w, d_k) 
+
+        # Loop until the Armijo condition is met
+        while rosenbrock_cost(w + η * d_k) > J_current + α * η * grad_dot_d
+            η *= β # Backtrack: Reduce the step size
+        end
+        # --- End Line Search ---
+
+        # Update rule: w(k+1) = w(k) + η * d_k
+        w += η * d_k
+        J_current = rosenbrock_cost(w)
+        
+        push!(weight_history, copy(w))
+        push!(cost_history, J_current)
+    end
+    
+    return weight_history, cost_history
+end
+
+initial_w = [-0.5, 1.0] 
+max_iterations = 500
+
+(w_history, j_history) = backtracking_line_search_gd(initial_w; max_iterations=max_iterations)
+
+plot_rosenbrock_trajectory(w_history, max_iterations)
+println("The backtracking line search significantly improves convergence speed\n compared to regular gradient descent for minimizing the Rosenbrock function.")
+```
+#### Part c)
+```julia
+function gradient_descent_momentum(
+    initial_w::Vector{Float64};
+    η::Float64 = 0.0005,  # Learning Rate
+    α::Float64 = 0.9,     # Momentum Parameter
+    max_iterations::Integer = 1000
+)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Performs Gradient Descent with Momentum on Rosenbrock's function.
+    """
+    
+    w = copy(initial_w)
+    v = zeros(Float64, length(w)) # Initialize velocity vector to zero
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    push!(weight_history, copy(w)) 
+    
+    for k in 1:max_iterations
+        grad_w = rosenbrock_gradient(w)
+        
+        # 1. Update velocity (v ← αv − η∇J(w))
+        v = α * v - η * grad_w
+        
+        # 2. Update weights (w ← w + v)
+        w += v
+        
+        push!(weight_history, copy(w))
+        push!(cost_history, rosenbrock_cost(w))
+        
+        # Simple convergence check (optional, but good practice)
+        if norm(grad_w) < 1e-6
+            println("Convergence achieved after $k steps.")
+            break
+        end
+    end
+    
+    return weight_history, cost_history
+end
+
+
+initial_w = [-0.5, 1.0]
+eta_val = 0.0005
+alpha_val = 0.9
+iterations = 1000
+
+(w_history_mom, j_history_mom) = gradient_descent_momentum(
+    initial_w; 
+    η=eta_val, 
+    α=alpha_val, 
+    max_iterations=iterations
+)
+
+plot_rosenbrock_trajectory(w_history_mom, iterations)
+println("Gradient descent with momentum outperforms both regular GD and BLS\n in minimizing the Rosenbrock function, achieving faster convergence.")
+```
+## Problem 6
+
+#### Part a)
+```julia
+using LinearAlgebra
+using Plots
+using Random # Required for Gaussian initialization
+
+## Fixed-Step Gradient Descent on Himmelblau’s Cost Function (Random Start)
+
+# --- 1. Himmelblau Cost Function (J(w)) ---
+
+function himmelblau_cost(w::Vector{Float64})::Float64
+    """
+    J(w) = (w₁² + w₂ - 11)² + (w₁ + w₂² - 7)²
+    Has four global minima where J(w*) = 0.
+    """
+    w1, w2 = w[1], w[2]
+    
+    term1 = w1^2 + w2 - 11.0
+    term2 = w1 + w2^2 - 7.0
+    
+    return term1^2 + term2^2
+end
+
+# --- 2. Himmelblau Gradient Function (∇J(w)) ---
+
+function himmelblau_gradient(w::Vector{Float64})::Vector{Float64}
+    """
+    Gradient of Himmelblau's function, ∇J(w).
+    """
+    w1, w2 = w[1], w[2]
+    
+    # Pre-calculate terms
+    T1 = w1^2 + w2 - 11.0
+    T2 = w1 + w2^2 - 7.0
+    
+    # dJ/dw1 = 2*T1*(2*w1) + 2*T2*(1)
+    dw1 = 4.0 * w1 * T1 + 2.0 * T2
+    
+    # dJ/dw2 = 2*T1*(1) + 2*T2*(2*w2)
+    dw2 = 2.0 * T1 + 4.0 * w2 * T2
+    
+    return [dw1, dw2]
+end
+
+# --- 3. Fixed-Step Gradient Descent Algorithm ---
+
+function gradient_descent_fixed_step(
+    initial_w::Vector{Float64};
+    η::Float64 = 0.0001,
+    max_iterations::Integer = 1000
+)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Performs Batch Gradient Descent (Fixed Step) on the Himmelblau function.
+    """
+    
+    w = copy(initial_w)
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    push!(weight_history, copy(w)) 
+    
+    for k in 1:max_iterations
+        grad_w = himmelblau_gradient(w)
+        
+        # Check for convergence or divergence (optional)
+        if norm(grad_w) < 1e-6
+             println("Convergence achieved after $k steps.")
+             break
+        end
+
+        # Update rule: Fixed-step
+        w -= η * grad_w
+        
+        push!(weight_history, copy(w))
+        push!(cost_history, himmelblau_cost(w))
+    end
+    
+    return weight_history, cost_history
+end
+
+
+# --- 4. Plotting Function (Contour & Minima) ---
+
+function plot_himmelblau_trajectory(w_history::Vector{Vector{Float64}})
+    """
+    Plots the contour of Himmelblau's function, the four global minima, 
+    and the GD trajectory.
+    """
+    
+    w_stars = [
+        [3.0, 2.0],
+        [-2.805118, 3.131312],
+        [-3.779310, -3.283186],
+        [3.584428, -1.848126]
+    ]
+    
+    # Define ranges for the contour plot grid
+    range_lim = 6.0
+    w_range = range(-range_lim, stop=range_lim, length=100)
+    
+    # Calculate the cost surface for the contour
+    J_surface = [himmelblau_cost([w1, w2]) for w2 in w_range, w1 in w_range]
+
+    # Create the contour plot
+    p = contour(w_range, w_range, J_surface, 
+                fill=true, 
+                levels=vcat(range(0.1, 10.0, length=10), range(20.0, 500.0, length=10)), 
+                cbar=false, 
+                title="GD on Himmelblau: Random Start (η=0.0001)",
+                xlabel="w₁", 
+                ylabel="w₂",
+                legend=:bottomright,
+                colormap=:viridis) 
+
+    # Plot the Four Global Minima
+    minima_w1 = [w[1] for w in w_stars]
+    minima_w2 = [w[2] for w in w_stars]
+    scatter!(p, minima_w1, minima_w2, 
+             label="Global Minima (J=0)", 
+             marker=:star, 
+             markersize=10, 
+             markercolor=:red, 
+             markerstrokecolor=:black)
+             
+    # Convert history into plottable vectors
+    w1_path = [w[1] for w in w_history]
+    w2_path = [w[2] for w in w_history]
+    
+    # Plot the GD path
+    plot!(p, w1_path, w2_path, 
+          label="GD Path", 
+          color=:cyan, 
+          linewidth=2, 
+          markershape=:circle, 
+          markersize=3, 
+          markercolor=:white,
+          alpha=0.9)
+
+    # Plot Start and End Points
+    scatter!(p, [w1_path[1]], [w2_path[1]], 
+             label="Start (w₀)", 
+             markersize=7, 
+             markershape=:diamond,
+             markercolor=:green)
+
+    scatter!(p, [w1_path[end]], [w2_path[end]], 
+             label="End (w_final)", 
+             markersize=7, 
+             markershape=:square,
+             markercolor=:yellow)
+
+    display(p)
+end
+
+# --- Execution ---
+Random.seed!(42) # Set seed for a reproducible random start
+initial_w = randn(2) # Draw from Gaussian N(0, 1)
+
+eta_val = 0.0001
+iterations = 1000
+
+(w_history, j_history) = gradient_descent_fixed_step(
+    initial_w; 
+    η=eta_val, 
+    max_iterations=iterations
+)
+
+plot_himmelblau_trajectory(w_history)
+
+# Print final results:
+println("--- Fixed-Step GD Results (Random Start) ---")
+println("Random Initial Weights (w₀): $(round.(w_history[1], digits=4))")
+println("Initial Cost: J(w₀) = $(round(himmelblau_cost(w_history[1]), digits=4))")
+println("Final Weights after $(length(w_history)-1) steps: $(round.(w_history[end], digits=4))")
+println("Final Cost: J(w_final) = $(round(j_history[end], digits=6))")
+
+println("The fixed-step gradient descent is able to converge to a local minimum of the Himmelblau function.")
+```
+#### Part b)
+```julia
+function plot_himmelblau_50_trajectories(all_w_histories::Vector{Vector{Vector{Float64}}}; η::Float64=0.0001)
+    """
+    Plots the contour of Himmelblau's function, the four global minima, 
+    and all 50 GD trajectories on a single plot.
+    """
+    
+    w_stars = [
+        [3.0, 2.0],
+        [-2.805118, 3.131312],
+        [-3.779310, -3.283186],
+        [3.584428, -1.848126]
+    ]
+    
+    # Define ranges for the contour plot grid
+    range_lim = 6.0
+    w_range = range(-range_lim, stop=range_lim, length=100)
+    
+    # Calculate the cost surface for the contour
+    J_surface = [himmelblau_cost([w1, w2]) for w2 in w_range, w1 in w_range]
+
+    # Create the contour plot
+    p = contour(w_range, w_range, J_surface, 
+                fill=true, 
+                levels=vcat(range(0.1, 10.0, length=10), range(20.0, 500.0, length=10)), 
+                cbar=false, 
+                title="50 Gradient Descent Runs (η=$η)",
+                xlabel="w₁", 
+                ylabel="w₂",
+                legend=:bottomright,
+                colormap=:viridis) 
+
+    # Plot the Four Global Minima
+    scatter!(p, [w[1] for w in w_stars], [w[2] for w in w_stars], 
+             label="Global Minima (J=0)", 
+             marker=:star, markersize=10, markercolor=:red, markerstrokecolor=:black)
+             
+    all_final_w1 = Float64[]
+    all_final_w2 = Float64[]
+    
+    # Plot all 50 trajectories
+    for (i, w_history) in enumerate(all_w_histories)
+        w1_path = [w[1] for w in w_history]
+        w2_path = [w[2] for w in w_history]
+        
+        # Plot the path with high transparency to manage clutter
+        plot!(p, w1_path, w2_path, 
+              label=nothing, # Only label the first path
+              color=:cyan, 
+              linewidth=0.5, 
+              alpha=0.75)
+
+        # Collect final point for aggregated plot
+        if !isempty(w_history)
+            push!(all_final_w1, w1_path[end])
+            push!(all_final_w2, w2_path[end])
+        end
+        
+        # Plot the first run's start point for reference
+        if i == 1
+             scatter!(p, [w1_path[1]], [w2_path[1]], 
+                 label="Example Start", 
+                 markersize=5, markershape=:diamond, markercolor=:green)
+        end
+    end
+    
+    # Plot all final convergence points
+    scatter!(p, all_final_w1, all_final_w2, 
+             label="Final Converged Points", 
+             markersize=4, markershape=:circle, markercolor=:yellow, markerstrokecolor=:black, alpha=0.8)
+
+    display(p)
+end
+
+# --- Execution for Part B (50 Runs) ---
+const NUM_RUNS = 50
+eta_val = 0.0001
+iterations = 1000
+
+# Set seed to ensure the *sequence* of 50 random starts is reproducible
+Random.seed!(123) 
+
+all_w_histories = Vector{Vector{Float64}}[]
+all_final_weights = Vector{Float64}[]
+
+println("--- Starting 50 Gradient Descent Runs ---")
+
+for i in 1:NUM_RUNS
+    # New random start (Gaussian N(0, 1)) for each run
+    initial_w = randn(2) 
+    
+    # Use the existing function, but only keep the weight history
+    (w_history, j_history) = gradient_descent_fixed_step(
+        initial_w; 
+        η=eta_val, 
+        max_iterations=iterations
+    )
+    
+    push!(all_w_histories, w_history)
+    push!(all_final_weights, w_history[end])
+end
+
+# Generate Plot
+plot_himmelblau_50_trajectories(all_w_histories, η=eta_val)
+println("Most of the 50 runs converge to local minima of the Himmelblau function,\n demonstrating the effectiveness of fixed-step gradient descent with η=$eta_val.")
+```
+## Problem 7
+```julia
+using LinearAlgebra
+using Plots
+using Random
+
+## Newton’s Method on a Quadratic Cost Function: J(w) = 0.5 * (w₁² + 5w₂²)
+
+# --- 1. Quadratic Cost Function (J(w)) ---
+
+function quadratic_cost(w::Vector{Float64})::Float64
+    """ J(w) = 0.5 * (w₁² + 5w₂²) """
+    w1, w2 = w[1], w[2]
+    return 0.5 * (w1^2 + 5.0 * w2^2)
+end
+
+# --- 2. Gradient Vector (g) ---
+
+function quadratic_gradient(w::Vector{Float64})::Vector{Float64}
+    """ g = ∇J(w) = [w₁, 5w₂]ᵀ """
+    return [w[1], 5.0 * w[2]]
+end
+
+# --- 3. Constant Hessian and Inverse (H and H⁻¹) ---
+
+# Hessian H is constant: [[1, 0], [0, 5]]
+const HESSIAN_INV = [
+    1.0 0.0; 
+    0.0 0.2 # 1/5 = 0.2
+]
+
+# --- 4. Newton's Method Algorithm ---
+
+function newtons_method(
+    initial_w::Vector{Float64};
+    η::Float64 = 1.0,           # Learning rate (fixed at 1.0)
+    max_iterations::Integer = 1
+)::Tuple{Vector{Vector{Float64}}, Vector{Float64}}
+    """
+    Implements Newton's Method: w ← w - η * H⁻¹ * g
+    For a quadratic function with η=1, convergence should occur in 1 step.
+    """
+    
+    w = copy(initial_w)
+    weight_history = Vector{Float64}[]
+    cost_history = Float64[]
+    push!(weight_history, copy(w)) 
+    push!(cost_history, quadratic_cost(w))
+    
+    # Run loop for max_iterations (should be 1 for η=1)
+    for k in 1:max_iterations
+        g = quadratic_gradient(w)
+        
+        # Newton Step: Δw = -H⁻¹ * g
+        delta_w = -HESSIAN_INV * g
+        
+        # Update rule: w ← w + η * Δw
+        w += η * delta_w
+        
+        push!(weight_history, copy(w))
+        push!(cost_history, quadratic_cost(w))
+        
+        # Optional: break if cost is near zero (convergence)
+        if quadratic_cost(w) < 1e-12
+            # println("Convergence to minimum achieved at step $k.")
+            break
+        end
+    end
+    
+    return weight_history, cost_history
+end
+
+
+# --- 5. Plotting Function (Contour & Multiple Trajectories) ---
+
+function plot_newtons_trajectories(all_w_histories::Vector{Vector{Vector{Float64}}})
+    """ Plots the quadratic cost contour and all Newton's Method trajectories. """
+    
+    # Optimal minimum is at w* = [0, 0]
+    w_star = [0.0, 0.0]
+    
+    range_lim = 0.5
+    w_range = range(-range_lim, stop=range_lim, length=100)
+    
+    # Calculate the cost surface
+    J_surface = [quadratic_cost([w1, w2]) for w2 in w_range, w1 in w_range]
+
+    # Create the contour plot
+    p = contour(w_range, w_range, J_surface, 
+                fill=true, 
+                levels=range(0.001, 0.5, length=15), 
+                cbar=false, 
+                title="Newton's Method (50 Runs, η=1.0)",
+                xlabel="w₁", 
+                ylabel="w₂",
+                legend=:topright,
+                colormap=:plasma) 
+
+    # Plot the Optimal Solution w*
+    scatter!(p, [w_star[1]], [w_star[2]], 
+             label="Optimal w*", 
+             marker=:star, markersize=10, markercolor=:red, markerstrokecolor=:black)
+             
+    all_final_w1 = Float64[]
+    all_final_w2 = Float64[]
+
+    # Plot all 50 trajectories
+    for w_history in all_w_histories
+        w1_path = [w[1] for w in w_history]
+        w2_path = [w[2] for w in w_history]
+        
+        # Plot the single path (start to end)
+        plot!(p, w1_path, w2_path, 
+              label=nothing, 
+              color=:lime, 
+              linewidth=1.5, 
+              alpha=0.6,
+              markershape=:circle,
+              markersize=3)
+
+        # Collect final point
+        if length(w_history) > 1
+            push!(all_final_w1, w1_path[end])
+            push!(all_final_w2, w2_path[end])
+        end
+    end
+    
+    # Plot final convergence points (should all be on top of w*)
+    scatter!(p, all_final_w1, all_final_w2, 
+             label="Final Weights (50)", 
+             markersize=5, markershape=:xcross, markercolor=:purple, markerstrokecolor=:black)
+
+    display(p)
+end
+
+
+# --- 6. Execution (50 Runs) ---
+const NUM_RUNS = 50
+eta_val = 1.0 
+iterations = 1 # We only need one iteration for convergence
+
+Random.seed!(42) # Set seed for reproducibility
+
+all_w_histories = Vector{Vector{Float64}}[]
+final_costs = Float64[]
+
+println("--- Starting 50 Newton's Method Runs (η=1.0) ---")
+
+# Run 50 experiments
+for i in 1:NUM_RUNS
+    # Gaussian initialization: μ=0, σ=0.1 -> randn(2) * 0.1
+    initial_w = randn(2) * 0.1 
+    
+    (w_history, j_history) = newtons_method(
+        initial_w; 
+        η=eta_val, 
+        max_iterations=iterations
+    )
+    
+    push!(all_w_histories, w_history)
+    push!(final_costs, j_history[end])
+end
+
+# Generate Plot showing all 50 trajectories
+plot_newtons_trajectories(all_w_histories)
+
+# --- Discussion Metrics ---
+mean_final_cost = mean(final_costs)
+println("\n--- Newton's Method Results (50 Runs) ---")
+println("Mean Final Cost: J(w_final) = $(round(mean_final_cost, digits=18))")
+println("Smallest Initial Cost: $(round(quadratic_cost(all_w_histories[1][1]), digits=4))")
+println("Initial Weights for Example Run: $(round.(all_w_histories[1][1], digits=4))")
+println("Final Weights for Example Run: $(round.(all_w_histories[1][end], digits=18))")
+println("The results confirm that Newton's Method converges to the optimal weights w⋆ in a single step due to the quadratic nature of the cost function and the fixed learning rate η=1.0.")
+```
+## Problem 8
+```julia
+using LinearAlgebra
+using Plots
+using Random
+
+## Problem 8: Newton’s Method on Himmelblau’s Cost Function
+
+# --- 1. Himmelblau Cost Function (J(w)) ---
+
+function himmelblau_cost(w::Vector{Float64})::Float64
+    """ J(w) = (w₁² + w₂ - 11)² + (w₁ + w₂² - 7)² """
+    w1, w2 = w[1], w[2]
+    term1 = w1^2 + w2 - 11.0
+    term2 = w1 + w2^2 - 7.0
+    return term1^2 + term2^2
+end
+
+# --- 2. Himmelblau Gradient Function (g = ∇J(w)) ---
+
+function himmelblau_gradient(w::Vector{Float64})::Vector{Float64}
+    """ Gradient of Himmelblau's function. """
+    w1, w2 = w[1], w[2]
+    T1 = w1^2 + w2 - 11.0
+    T2 = w1 + w2^2 - 7.0
+    
+    dw1 = 4.0 * w1 * T1 + 2.0 * T2
+    dw2 = 2.0 * T1 + 4.0 * w2 * T2
+    
+    return [dw1, dw2]
+end
+
+# --- 3. Himmelblau Hessian Function (H) ---
+
+function himmelblau_hessian(w::Vector{Float64})::Matrix{Float64}
+    """ Hessian matrix of Himmelblau's function. """
+    w1, w2 = w[1], w[2]
+    
+    # Pre-calculate terms
+    T1 = w1^2 + w2 - 11.0
+    T2 = w1 + w2^2 - 7.0
+    
+    # H11: 4*T1 + 8*w1^2 + 2
+    H11 = 4.0 * T1 + 8.0 * w1^2 + 2.0
+    
+    # H22: 2 + 4*T2 + 8*w2^2
+    H22 = 2.0 + 4.0 * T2 + 8.0 * w2^2
+    
+    # H12 = H21: 4*w1 + 4*w2
+    H12 = 4.0 * w1 + 4.0 * w2
+    
+    return [
+        H11 H12; 
+        H12 H22
+    ]
+end
+
+# --- 4. Newton's Method Algorithm ---
+
+function newtons_method_himmelblau(
+    initial_w::Vector{Float64};
+    η::Float64 = 1.0,
+    max_iterations::Integer = 100,
+    tolerance::Float64 = 1e-6
+)::Tuple{Vector{Vector{Float64}}, Bool}
+    """
+    Performs Newton's Method: w ← w - η * H⁻¹ * g.
+    Returns: (weight_history, converged_successfully)
+    """
+    
+    w = copy(initial_w)
+    weight_history = Vector{Float64}[]
+    push!(weight_history, copy(w))
+    converged = false
+    
+    for k in 1:max_iterations
+        g = himmelblau_gradient(w)
+        H = himmelblau_hessian(w)
+        
+        # Check for convergence based on gradient norm
+        if norm(g) < tolerance
+            # println("Converged by small gradient after $k steps.")
+            converged = true
+            break
+        end
+
+        try
+            # Calculate Newton Step: Δw = -H⁻¹ * g
+            H_inv = inv(H)
+            delta_w = -H_inv * g
+            
+            # Check for stagnation or divergence (large step)
+            if norm(delta_w) > 1000.0 # Heuristic to detect explosion/divergence
+                 # println("Run terminated due to step explosion.")
+                 break
+            end
+
+            # Update rule: w ← w + η * Δw
+            w_new = w + η * delta_w
+            
+            # Check for weight change convergence
+            if norm(w_new - w) < tolerance
+                w = w_new
+                push!(weight_history, copy(w))
+                converged = true
+                break
+            end
+            
+            w = w_new
+            push!(weight_history, copy(w))
+
+        catch e
+            # Catches exceptions like "SingularException" (Hessian is non-invertible)
+            println("Run terminated due to singular Hessian matrix at step $k.")
+            break
+        end
+    end
+    
+    return weight_history, converged
+end
+
+
+# --- 5. Plotting Function (50 Trajectories) ---
+
+function plot_himmelblau_50_trajectories_newton(
+    all_w_histories::Vector{Vector{Vector{Float64}}}, 
+    final_results::Vector{Tuple{Vector{Float64}, Bool}}
+)
+    """ Plots the Himmelblau contour and all 50 Newton's Method trajectories. """
+    
+    w_stars = [
+        [3.0, 2.0],        
+        [-2.805118, 3.131312], 
+        [-3.779310, -3.283186], 
+        [3.584428, -1.848126]  
+    ]
+    
+    range_lim = 6.0
+    w_range = range(-range_lim, stop=range_lim, length=100)
+    J_surface = [himmelblau_cost([w1, w2]) for w2 in w_range, w1 in w_range]
+
+    p = contour(w_range, w_range, J_surface, 
+                fill=true, 
+                levels=vcat(range(0.1, 10.0, length=10), range(20.0, 500.0, length=10)), 
+                cbar=false, 
+                title="Newton's Method (50 Runs, η=1.0, Gaussian σ=1)",
+                xlabel="w₁", 
+                ylabel="w₂",
+                legend=:bottomright,
+                colormap=:viridis,
+                size=(800, 800), 
+                aspect_ratio=:equal, #
+                xlims=(-range_lim, range_lim), 
+                ylims=(-range_lim, range_lim)) 
+
+    scatter!(p, [w[1] for w in w_stars], [w[2] for w in w_stars], 
+             label="Global Minima (J=0)", 
+             marker=:star, markersize=10, markercolor=:red, markerstrokecolor=:black)
+             
+    converged_points = Vector{Float64}[]
+    failed_points = Vector{Float64}[]
+
+    for (i, w_history) in enumerate(all_w_histories)
+        if isempty(w_history) || length(w_history) < 2
+            continue
+        end
+        
+        w1_path = [w[1] for w in w_history]
+        w2_path = [w[2] for w in w_history]
+        
+        # Plot the trajectory path
+        plot!(p, w1_path, w2_path, 
+              label=nothing, 
+              color=:black, 
+              linewidth=0.5, 
+              alpha=0.75)
+
+        # Separate final points based on success
+        if final_results[i][2]
+            push!(converged_points, w_history[end])
+        else
+            push!(failed_points, w_history[end])
+        end
+    end
+    
+    # Plot successfully converged final points
+    scatter!(p, [w[1] for w in converged_points], [w[2] for w in converged_points], 
+             label="Converged (Low J)", 
+             markersize=4, markershape=:circle, markercolor=:yellow, markerstrokecolor=:black, alpha=0.8)
+
+    # Plot failed/diverged final points (where the run stopped)
+    scatter!(p, [w[1] for w in failed_points], [w[2] for w in failed_points], 
+             label="Failed/Diverged", 
+             markersize=4, markershape=:xcross, markercolor=:magenta, alpha=0.8)
+
+    display(p)
+end
+
+# --- 6. Execution (50 Runs) ---
+const NUM_RUNS = 50
+eta_val = 1.0 
+iterations = 100
+
+Random.seed!(42) 
+
+all_w_histories = Vector{Vector{Float64}}[]
+final_results = Vector{Tuple{Vector{Float64}, Bool}}(undef, NUM_RUNS)
+
+println("--- Starting 50 Newton's Method Runs on Himmelblau (η=1.0) ---")
+
+for i in 1:NUM_RUNS
+    # Gaussian initialization: μ=0, σ=1
+    initial_w = randn(2) 
+    
+    (w_history, converged) = newtons_method_himmelblau(
+        initial_w; 
+        η=eta_val, 
+        max_iterations=iterations
+    )
+    
+    push!(all_w_histories, w_history)
+    final_w = isempty(w_history) ? initial_w : w_history[end]
+    final_results[i] = (final_w, converged)
+end
+
+# Generate Plot showing all 50 trajectories
+plot_himmelblau_50_trajectories_newton(all_w_histories, final_results)
+
+# --- Discussion Metrics ---
+total_converged = sum(r[2] for r in final_results)
+println("\n--- Newton's Method on Himmelblau Results (50 Runs) ---")
+println("Total Runs Converged Successfully (J ≈ 0): $total_converged / $NUM_RUNS")
+# Select a final point and check its cost
+example_final_cost = himmelblau_cost(final_results[1][1])
+println("Example Final Cost (Run 1): J(w_final) = $(round(example_final_cost, digits=6))")
+println("Newton's method is less effective on the Himmelblau function due to its non-quadratic nature, leading to convergence issues from random initializations.")
+```
+## Problem 9
+```julia
+using LinearAlgebra
+using Plots
+using Random
+
+## Problem 9: Levenberg-Marquardt Method on Himmelblau’s Cost Function
+
+# --- 1. Himmelblau Cost Function (J(w)) ---
+
+function himmelblau_cost(w::Vector{Float64})::Float64
+    """ J(w) = (w₁² + w₂ - 11)² + (w₁ + w₂² - 7)² """
+    w1, w2 = w[1], w[2]
+    term1 = w1^2 + w2 - 11.0
+    term2 = w1 + w2^2 - 7.0
+    return term1^2 + term2^2
+end
+
+# --- 2. Himmelblau Gradient Function (g = ∇J(w)) ---
+
+function himmelblau_gradient(w::Vector{Float64})::Vector{Float64}
+    """ Gradient of Himmelblau's function. """
+    w1, w2 = w[1], w[2]
+    T1 = w1^2 + w2 - 11.0
+    T2 = w1 + w2^2 - 7.0
+    
+    dw1 = 4.0 * w1 * T1 + 2.0 * T2
+    dw2 = 2.0 * T1 + 4.0 * w2 * T2
+    
+    return [dw1, dw2]
+end
+
+# --- 3. Himmelblau Hessian Function (H) ---
+
+function himmelblau_hessian(w::Vector{Float64})::Matrix{Float64}
+    """ Hessian matrix of Himmelblau's function. """
+    w1, w2 = w[1], w[2]
+    
+    # Pre-calculate terms
+    T1 = w1^2 + w2 - 11.0
+    T2 = w1 + w2^2 - 7.0
+    
+    # H11: 4*T1 + 8*w1^2 + 2
+    H11 = 4.0 * T1 + 8.0 * w1^2 + 2.0
+    
+    # H22: 2 + 4*T2 + 8*w2^2
+    H22 = 2.0 + 4.0 * T2 + 8.0 * w2^2
+    
+    # H12 = H21: 4*w1 + 4*w2
+    H12 = 4.0 * w1 + 4.0 * w2
+    
+    return [
+        H11 H12; 
+        H12 H22
+    ]
+end
+
+# --- 4. Levenberg-Marquardt Algorithm ---
+
+function levenberg_marquardt(
+    initial_w::Vector{Float64};
+    λ::Float64 = 0.00001,             
+    max_iterations::Integer = 1000,
+    tolerance::Float64 = 1e-6
+)::Vector{Vector{Float64}}
+    """
+    Implements Levenberg-Marquardt Method (simplistic fixed-λ version 
+    for illustration): Δw = -[H + λI]⁻¹g
+    """
+    
+    w = copy(initial_w)
+    weight_history = Vector{Float64}[]
+    push!(weight_history, copy(w))
+    
+    # Use Diagonal to explicitly create the identity matrix variable
+    n = length(w)
+    I_matrix = Diagonal(ones(n)) 
+    
+    current_lambda = λ # Use a fixed lambda for simplicity in this example
+    
+    for k in 1:max_iterations
+        g = himmelblau_gradient(w)
+        H = himmelblau_hessian(w)
+        
+        # Check for convergence based on gradient norm
+        if norm(g) < tolerance
+            println("Convergence achieved by small gradient after $k steps.")
+            break
+        end
+
+        try
+            # LM Step: Δw = -[H + λI]⁻¹g
+            # H_damped = H + λI_matrix
+            H_damped = H + current_lambda * I_matrix # Uses the explicitly defined I_matrix
+            
+            # Solve the linear system for the step direction: [H + λI] Δw = -g
+            delta_w = H_damped \ -g 
+            
+            # Update rule: w ← w + Δw (fixed step size of 1)
+            w += delta_w
+            push!(weight_history, copy(w))
+            
+            # Check for stagnation
+            if norm(delta_w) < 1e-8
+                println("Stagnation achieved after $k steps.")
+                break
+            end
+
+        catch e
+            println("Run terminated due to numerical instability at step $k.")
+            break
+        end
+    end
+    
+    return weight_history
+end
+
+
+# --- 5. Plotting Function (Example Trajectory) ---
+
+function plot_lm_trajectory(w_history::Vector{Vector{Float64}}; λ::Float64)
+    """ Plots the contour of Himmelblau's function and the LM trajectory. """
+    
+    w_stars = [
+        [3.0, 2.0],        
+        [-2.805118, 3.131312], 
+        [-3.779310, -3.283186], 
+        [3.584428, -1.848126]  
+    ]
+    
+    range_lim = 6.0
+    w_range = range(-range_lim, stop=range_lim, length=100)
+    J_surface = [himmelblau_cost([w1, w2]) for w2 in w_range, w1 in w_range]
+
+    p = contour(w_range, w_range, J_surface, 
+                fill=true, 
+                levels=vcat(range(0.1, 10.0, length=10), range(20.0, 500.0, length=10)), 
+                cbar=false, 
+                title="Levenberg-Marquardt Trajectory (λ=$λ)",
+                xlabel="w₁", 
+                ylabel="w₂",
+                legend=:bottomright,
+                colormap=:viridis,
+                size=(700, 700),
+                aspect_ratio=:equal,
+                xlims=(-range_lim, range_lim),
+                ylims=(-range_lim, range_lim))
+
+    # Plot Minima
+    scatter!(p, [w[1] for w in w_stars], [w[2] for w in w_stars], 
+             label="Global Minima (J=0)", 
+             marker=:star, markersize=10, markercolor=:red, markerstrokecolor=:black)
+             
+    # Plot Path
+    w1_path = [w[1] for w in w_history]
+    w2_path = [w[2] for w in w_history]
+    
+    plot!(p, w1_path, w2_path, 
+          label="LM Path", 
+          color=:cyan, 
+          linewidth=2, 
+          markershape=:circle, 
+          markersize=3, 
+          markercolor=:white,
+          alpha=0.9)
+
+    # Plot Start and End Points
+    scatter!(p, [w1_path[1]], [w2_path[1]], 
+             label="Start (w₀)", 
+             markersize=7, markershape=:diamond, markercolor=:green)
+
+    scatter!(p, [w1_path[end]], [w2_path[end]], 
+             label="End (w_final)", 
+             markersize=7, markershape=:square, markercolor=:yellow)
+
+    display(p)
+end
+
+# --- Execution: Single Run for Discussion ---
+
+Random.seed!(43) # Use a different seed for a new path
+initial_w = randn(2) # Gaussian initialization: μ=0, σ=1 (e.g., w₀ ≈ [0.28, -0.73])
+lambda_val = 0.00001 # Small lambda -> close to Newton's Method
+
+println("--- Starting Levenberg-Marquardt Run (λ=$lambda_val) ---")
+w_history = levenberg_marquardt(initial_w; λ=lambda_val)
+
+plot_lm_trajectory(w_history; λ=lambda_val)
+
+# Print final results:
+final_w = w_history[end]
+final_cost = himmelblau_cost(final_w)
+steps = length(w_history) - 1
+
+println("\n--- Levenberg-Marquardt Results (λ=$lambda_val) ---")
+println("Initial Weights (w₀): $(round.(w_history[1], digits=4))")
+println("Initial Cost: J(w₀) = $(round(himmelblau_cost(w_history[1]), digits=4))")
+println("Final Weights after $steps steps: $(round.(final_w, digits=4))")
+println("Final Cost: J(w_final) = $(round(final_cost, digits=6))")
+
+lambda_val = 10.0 # NEW lambda value for comparison
+
+println("--- Starting Levenberg-Marquardt Run (λ=$lambda_val) ---")
+w_history = levenberg_marquardt(initial_w; λ=lambda_val)
+
+plot_lm_trajectory(w_history; λ=lambda_val)
+
+# Print final results:
+final_w = w_history[end]
+final_cost = himmelblau_cost(final_w)
+steps = length(w_history) - 1
+
+println("\n--- Levenberg-Marquardt Results (λ=$lambda_val) ---")
+println("Initial Weights (w₀): $(round.(w_history[1], digits=4))")
+println("Initial Cost: J(w₀) = $(round(himmelblau_cost(w_history[1]), digits=4))")
+println("Final Weights after $steps steps: $(round.(final_w, digits=4))")
+println("Final Cost: J(w_final) = $(round(final_cost, digits=6))")
+
+println("The Levenberg-Marquardt method is highly ineffective on the Himmelblau function. ")
+```
+## Appendix: Source Code Listings
+##### Problem0.jl
+```julia; eval = false
+using Random
+using LinearAlgebra # Required for basic matrix operations
+using Plots         # For visualization
+
+
+# Converts the Matrix output from doublemoon (N x 2) to Vector{Vector{Float64}}
+function matrix_to_vecvec(X::Matrix{Float64})::Vector{Vector{Float64}}
+    return [X[i, :] for i in 1:size(X, 1)]
+end
+
+function doublemoon(N::Integer; d::Float64=1.0, r::Float64=10.0, w::Float64=6.0)
+    # Pre-allocate vectors to store all generated points and labels
+    N_half = N ÷ 2
+    X_points = Float64[]
+    Y_points = Float64[]
+    Labels = Float64[]
+
+    # Define the range for the radius sampling
+    R_min = r - w / 2.0
+    R_max = r + w / 2.0
+    R_range = R_max - R_min
+
+    # --- Moon 1 Generation ---
+    for i in 1:N_half
+        # Draw R1 from the uniform interval [r - w/2, r + w/2]
+        R1 = R_min + R_range * rand()
+
+        # Draw θ1 from the uniform interval [0, π]
+        θ1 = π * rand()
+
+        # Form Cartesian X1 and Y1 from the polar R1 and θ1
+        X1 = R1 * cos(θ1)
+        Y1 = R1 * sin(θ1)
+
+        # Collect the points
+        push!(X_points, X1)
+        push!(Y_points, Y1)
+        push!(Labels, 1.0)
+    end
+
+    # --- Moon 2 Generation ---
+    for i in 1:N÷2
+        # Draw R2 from the uniform interval [r - w/2, r + w/2]
+        R2 = R_min + R_range * rand()
+
+        # Draw θ2 from the uniform interval [π, 2π]
+        # Range is [π, 2π], total size is π
+        θ2 = π + π * rand()
+
+        # Form Cartesian X2 and Y2 from the polar R2 and θ2
+        # Offset X2 and Y2 by r and -d respectively (as requested in your original code)
+        X2 = R2 * cos(θ2) + r
+        Y2 = R2 * sin(θ2) - d
+
+        # Collect the points
+        push!(X_points, X2)
+        push!(Y_points, Y2)
+        push!(Labels, 2.0) # Using 2.0 instead of -1.0 for easier plotting with 'group'
+    end
+
+    # Combine the vectors into a single (N x 2) matrix
+    X = [X_points Y_points]
+
+    return X, Labels
+end
+
+function GaussX(N::Integer; σ²=1.0)
+
+    N_half = N ÷ 2
+    σ = sqrt(σ²)
+
+    # --- 1. Generate Class C1 (t=+1): Points forced into Q1 and Q3 ---
+    # C1 condition: (x >= 0.0 && y >= 0.0) || (x < 0.0 && y < 0.0)
+
+    R1 = Vector{Float64}[] # R1 holds the collected points for Class 1 (Q1/Q3)
+    while length(R1) < N_half
+        # Draw candidate (x, y) from a Gaussian distribution centered at zero, scaled by σ.
+        x = σ * randn()
+        y = σ * randn()
+
+        # NOTE: This Cartesian check replaces the explicit definition of θ₁'s angular range.
+        # It forces the point into Quadrants 1 or 3.
+        if (x >= 0.0 && y >= 0.0) || (x < 0.0 && y < 0.0)
+            push!(R1, [x, y])
+        end
+    end
+
+    # --- 2. Generate Class C2 (t=-1): Points forced into Q2 and Q4 ---
+    # C2 condition: (x < 0.0 && y >= 0.0) || (x >= 0.0 && y < 0.0)
+
+    R2 = Vector{Float64}[] # R2 holds the collected points for Class 2 (Q2/Q4)
+    while length(R2) < N_half
+        # Draw candidate (x, y) from a Gaussian distribution centered at zero, scaled by σ.
+        x = σ * randn()
+        y = σ * randn()
+
+        # NOTE: This Cartesian check replaces the explicit definition of θ₂'s angular range.
+        # It forces the point into Quadrants 2 or 4.
+        if (x < 0.0 && y >= 0.0) || (x >= 0.0 && y < 0.0)
+            push!(R2, [x, y])
+        end
+    end
+
+    # --- 3. Combine Data and Labels ---
+
+    # Concatenate the two sets (R1 and R2)
+    X_final = vcat(R1, R2)
+
+    # Assign labels: +1.0 for R1 (first half), -1.0 for R2 (second half)
+    label = vcat(ones(N_half), fill(-1.0, N_half))
+
+    return X_final::Vector{Vector{Float64}}, label::Vector{Float64}
+end
+```
+##### Problem1.jl
+```julia; eval = false
+using LinearAlgebra
+
+function perceptron(𝐱::Vector{Float64}, 𝐰::Vector{Float64})
+    if 1+length(𝐱)!=length(𝐰); error("Length of weight vector must be one more than length of data vector"); end
+    # Append One: x ← [1 x]T
+    x = [1; 𝐱]
+    # Matrix multiply: ν = wT x
+    𝝂 = 𝐰' * x
+    # Explicitly use the signum logic required for Perceptron stability
+    if 𝝂 > 1e-9
+        y = 1.0
+    elseif 𝝂 < -1e-9
+        y = -1.0
+    else # 𝝂 == 0
+        y = 0.0 
+    end
+    return y::Float64
+end
+```
+##### Problem2.jl
+```julia; eval = false
+function trainPerceptron(X::Vector{Vector{Float64}}, 𝐝::Vector{Float64}, η::Float64; 
+                         𝐰=nothing, maxIter::Integer=1, tol=1e-3) # maxIter set to 1
+    
+    # Initialization (Must be here per template)
+    if 𝐰===nothing; 𝐰 = randn(length(X[1])+1); end
+    N = length(X)
+    shuffleIndex = collect(1:N)
+    
+    # We remove the unused 'e = zeros(maxIter)' from your original template to avoid type issues.
+    # We also remove the convergence check and the outer loop control logic as we will manage
+    # convergence and epoch control externally for the 30-trial loop.
+    
+    # We shuffle the data once per call (once per epoch)
+    shuffle!(shuffleIndex)
+    X_shuffled = X[shuffleIndex]
+    D_shuffled = 𝐝[shuffleIndex]
+    
+    # Core SGD Loop (Inner loop body from your template)
+    for n ∈ 1:N
+        # compute the response of the perceptron
+        y = perceptron(X_shuffled[n], 𝐰) # Use shuffled data
+        
+        # compute the error (target minus actual output)
+        e = D_shuffled[n] - y      
+        
+        # If the error is non-zero, update the weights
+        if abs(e) > 1e-9 # Check if e is effectively non-zero
+            
+            # Augment the input vector x_n for the update rule
+            x_aug = [1.0; X_shuffled[n]] # Use shuffled data
+            
+            # Update the weights: w <- w + eta * e * x_aug
+            𝐰 .+= η * e * x_aug 
+        end
+    end
+
+    # Return updated weights and the epoch count (which is always 1)
+    return 𝐰::Vector{Float64}
+end
+```
+##### Problem3.jl
+```julia; eval = false
+using LinearAlgebra
+
+function trainBatchPerceptron(X::Vector{Vector{Float64}}, 𝐝::Vector{Float64}, η::Float64; 𝐰=nothing, maxIter::Integer=50, tol=1e-9)
+    if 𝐰===nothing; 𝐰 = randn(length(X[1])+1); end
+    iter = 0
+    N = length(X)
+    for outer iter ∈ 1:maxIter
+        𝐰_old = copy(𝐰) #save centers to check for convergence
+
+        # Initialize the total correction vector for this batch (epoch)
+        # This vector accumulates sum_{n | x_n ∈ M} e_n * x_n
+        Δ𝐰_batch = zeros(length(𝐰))
+        
+        # Loop through all training examples (the batch)
+        for n ∈ 1:N
+            
+            # Augment x_n (the input vector) for calculations
+            x_aug = [1.0; X[n]]
+            
+            # Compute the weighted sum and activation output
+            nu = dot(𝐰, x_aug)
+            y = sign(nu)
+            
+            # Compute the error: e = desired - actual
+            e = 𝐝[n] - y
+            
+            # If misclassified (error is non-zero)
+            if abs(e) > 1e-12 
+                # Accumulate the correction term (e_n * x_n)
+                # This performs: Δ𝐰_batch += e * x_aug
+                Δ𝐰_batch .+= e * x_aug 
+            end
+        end
+        
+        # APPLY THE BATCH UPDATE: w <- w + η * Δ𝐰_batch
+        # This step is performed ONLY ONCE after the entire dataset (batch) is processed
+        𝐰 .+= η * Δ𝐰_batch
+
+        if norm(𝐰-𝐰_old) < tol #check for convergence
+            break
+        end
+    end
+    return 𝐰::Vector{Float64}, iter::Integer
+end
+```
